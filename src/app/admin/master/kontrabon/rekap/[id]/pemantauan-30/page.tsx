@@ -289,7 +289,7 @@ export default function Pemantauan30Page() {
             <div className="mt-2 text-lg font-bold text-slate-900">{formatCurrency(payload.header?.grand_total)}</div>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Kartu</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Nota</div>
             <div className="mt-2 text-lg font-bold text-slate-900">{payload.cards.length}</div>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
