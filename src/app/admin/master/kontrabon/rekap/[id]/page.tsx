@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { Printer, Plus, Wallet, Bell, ClipboardList, Trash2, Search, X } from "lucide-react";
+import { Printer, Plus, Wallet, Bell, ClipboardList, Trash2, Search, X, History } from "lucide-react";
 import Swal from "sweetalert2";
 
 type RekapHeader = {
@@ -370,6 +370,19 @@ export default function KontrabonRekapDetailPage() {
             <button className="h-9 px-4 rounded-md bg-slate-700 text-white text-sm font-semibold flex items-center gap-2">
               <ClipboardList className="w-4 h-4" />
               Ajukan kontrabon 30%
+            </button>
+            <button
+              type="button"
+              className="h-9 px-4 rounded-md bg-slate-700 text-white text-sm font-semibold flex items-center gap-2"
+              onClick={() => {
+                const nextTab = window.open("about:blank", "_blank", "noopener,noreferrer");
+                if (nextTab) {
+                  nextTab.location.href = "/admin/master/kontrabon/rekap";
+                }
+              }}
+            >
+              <History className="w-4 h-4" />
+              Rasio Kontrabon
             </button>
             <button className="h-9 px-4 rounded-md bg-slate-700 text-white text-sm font-semibold flex items-center gap-2">
               <Bell className="w-4 h-4" />

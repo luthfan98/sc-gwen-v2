@@ -722,29 +722,14 @@ export default function HistoryKontrabonPage() {
             Tampilkan Belum Lunas
           </button>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              const nextTab = window.open("about:blank", "_blank", "noopener,noreferrer");
-              if (nextTab) {
-                nextTab.location.href = "/admin/master/kontrabon/rekap";
-              }
-            }}
-            className="inline-flex items-center gap-2 rounded-xl bg-slate-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm"
-          >
-            <History className="h-4 w-4" />
-            Rasio Kontrabon
-          </button>
-          <button
-            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm"
-            onClick={() => setShowModal(true)}
-            type="button"
-          >
-            <Plus className="h-4 w-4" />
-            Tambah
-          </button>
-        </div>
+        <button
+          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm"
+          onClick={() => setShowModal(true)}
+          type="button"
+        >
+          <Plus className="h-4 w-4" />
+          Tambah
+        </button>
       </div>
 
       <div className="bg-white border border-gray-100 rounded-2xl shadow-sm w-full max-w-[calc(100vw-330px)] overflow-hidden">
