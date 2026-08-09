@@ -351,8 +351,16 @@ export default function Pemantauan30Page() {
                   </div>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="min-w-[2250px] w-full border-collapse text-sm">
+                <div className="overflow-hidden">
+                  <table className="w-full table-fixed border-collapse text-[12px] leading-tight">
+                    <colgroup>
+                      <col className="w-[34%]" />
+                      <col className="w-[12.5%]" />
+                      {Array.from({ length: 25 }).map((_, index) => (
+                        <col key={`slot-col-${index}`} className="w-[2.02%]" />
+                      ))}
+                      <col className="w-[3%]" />
+                    </colgroup>
                     <thead>
                       <tr className="bg-[#daedff] text-slate-900">
                         <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-left">Nama Barang</th>
@@ -378,35 +386,37 @@ export default function Pemantauan30Page() {
                       {card.data.map((row) => (
                         <tr key={`${card.kodeTPengadaan}-${row.kodeBarangVariant}`} className="align-top">
                           <td className="border border-slate-300 px-3 py-2 text-slate-900">
-                            <div className="font-semibold">{row.namaBarang}</div>
-                            <div className="text-xs text-slate-500">{row.kodeBarangVariant}</div>
+                            <div className="break-words font-semibold leading-snug">{row.namaBarang}</div>
+                            <div className="mt-1 break-all text-[11px] text-slate-500">{row.kodeBarangVariant}</div>
                           </td>
-                          <td className="border border-slate-300 px-3 py-2">{row.namaSupplier || "-"}</td>
+                          <td className="border border-slate-300 px-3 py-2 break-words leading-snug">{row.namaSupplier || "-"}</td>
                           {slotOrder.flatMap((slotName) => {
                             const slot = row.slots.find((item) => item.slot === slotName) || null;
                             const slotClass = slotCellClass(slot);
                             return [
-                              <td key={`${row.kodeBarangVariant}-${slotName}-status`} className={`border border-slate-300 px-2 py-2 text-center ${slotClass}`}>
+                              <td key={`${row.kodeBarangVariant}-${slotName}-status`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass}`}>
                                 {slot ? (
                                   <button
                                     type="button"
                                     onClick={() => openPengadaanDetail(slot)}
-                                    className={`inline-flex rounded-full px-2 py-1 text-[11px] font-semibold transition hover:brightness-95 ${statusBayarClass(slot.statusBayar)}`}
+                                    className={`inline-flex max-w-full items-center justify-center rounded-full px-1.5 py-1 text-[10px] font-semibold transition hover:brightness-95 ${statusBayarClass(slot.statusBayar)}`}
                                   >
                                     {slot.statusBayar}
                                   </button>
                                 ) : "-"}
                               </td>,
-                              <td key={`${row.kodeBarangVariant}-${slotName}-po`} className={`border border-slate-300 px-2 py-2 text-center ${slotClass}`}>
-                                {slot ? `${formatNumber(slot.qty)} ${slot.satuan || ""}`.trim() : "-"}
+                              <td key={`${row.kodeBarangVariant}-${slotName}-po`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass}`}>
+                                <span className="break-words">
+                                  {slot ? `${formatNumber(slot.qty)} ${slot.satuan || ""}`.trim() : "-"}
+                                </span>
                               </td>,
-                              <td key={`${row.kodeBarangVariant}-${slotName}-pct`} className={`border border-slate-300 px-2 py-2 text-center font-semibold ${slotClass}`}>
+                              <td key={`${row.kodeBarangVariant}-${slotName}-pct`} className={`border border-slate-300 px-1 py-2 text-center font-semibold ${slotClass}`}>
                                 {slot?.persen !== null && slot?.persen !== undefined ? `${formatNumber(slot.persen)}%` : "-"}
                               </td>,
-                              <td key={`${row.kodeBarangVariant}-${slotName}-sisa`} className={`border border-slate-300 px-2 py-2 text-center ${slotClass}`}>
+                              <td key={`${row.kodeBarangVariant}-${slotName}-sisa`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass}`}>
                                 {slot ? formatNumber(slot.sisa) : "-"}
                               </td>,
-                              <td key={`${row.kodeBarangVariant}-${slotName}-umur`} className={`border border-slate-300 px-2 py-2 text-center ${slotClass}`}>
+                              <td key={`${row.kodeBarangVariant}-${slotName}-umur`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass}`}>
                                 {slot?.umurHari !== null && slot?.umurHari !== undefined ? `${slot.umurHari} hari` : "-"}
                               </td>,
                             ];
