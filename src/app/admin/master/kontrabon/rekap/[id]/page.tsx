@@ -377,14 +377,23 @@ export default function KontrabonRekapDetailPage() {
               onClick={() => {
                 const nextTab = window.open("about:blank", "_blank", "noopener,noreferrer");
                 if (nextTab) {
-                  nextTab.location.href = "/admin/master/kontrabon/rekap";
+                  nextTab.location.href = `/admin/master/kontrabon/rekap/${id}/pemantauan-30`;
                 }
               }}
             >
               <History className="w-4 h-4" />
               Rasio Kontrabon
             </button>
-            <button className="h-9 px-4 rounded-md bg-slate-700 text-white text-sm font-semibold flex items-center gap-2">
+            <button
+              type="button"
+              className="h-9 px-4 rounded-md bg-slate-700 text-white text-sm font-semibold flex items-center gap-2"
+              onClick={() => {
+                const nextTab = window.open("about:blank", "_blank", "noopener,noreferrer");
+                if (nextTab) {
+                  nextTab.location.href = `/admin/master/kontrabon/rekap/${id}/pemantauan-30`;
+                }
+              }}
+            >
               <Bell className="w-4 h-4" />
               Pemantauan Stok
             </button>
