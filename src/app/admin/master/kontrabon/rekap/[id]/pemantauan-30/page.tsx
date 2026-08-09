@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Printer } from "lucide-react";
+import { ArrowLeft, Printer, X } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
@@ -55,6 +55,30 @@ type PemantauanResponse = {
   cards: PemantauanCard[];
 };
 
+type PengadaanDetailResponse = {
+  header?: {
+    kode_t_pengadaan?: string;
+    tgl?: string | null;
+    deadline?: string | null;
+    kode_supplier?: string | null;
+    supplier_nama?: string | null;
+    no_faktur_supplier?: string | null;
+    total_akhir?: number | null;
+    total_tagihan?: number | null;
+    total_dibayar?: number | null;
+    is_lunas?: number | boolean | null;
+  } | null;
+  items?: Array<{
+    kode_barang_variant?: string | null;
+    nama_barang?: string | null;
+    nama_varian?: string | null;
+    qty?: number | null;
+    satuan?: string | null;
+    harga_beli?: number | null;
+    subtotal?: number | null;
+  }>;
+};
+
 const formatDate = (value?: string | null) => {
   if (!value) return "-";
   const date = new Date(value);
@@ -99,6 +123,10 @@ export default function Pemantauan30Page() {
   const [payload, setPayload] = useState<PemantauanResponse>({ header: null, cards: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<PemantauanSlot | null>(null);
+  const [pengadaanDetail, setPengadaanDetail] = useState<PengadaanDetailResponse | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -144,6 +172,23 @@ export default function Pemantauan30Page() {
   }, [payload.cards]);
 
   const slotOrder = ["K5", "K4", "K3", "K2", "K1"];
+
+  const openPengadaanDetail = async (slot: PemantauanSlot) => {
+    setSelectedSlot(slot);
+    setPengadaanDetail(null);
+    setDetailError(null);
+    setDetailLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/pengadaan/${encodeURIComponent(slot.kodeTPengadaan)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as PengadaanDetailResponse;
+      setPengadaanDetail(data);
+    } catch {
+      setDetailError("Gagal memuat detail pengadaan.");
+    } finally {
+      setDetailLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#eef3ff] px-6 py-6">
@@ -273,9 +318,13 @@ export default function Pemantauan30Page() {
                             return [
                               <td key={`${row.kodeBarangVariant}-${slotName}-status`} className={`border border-slate-300 px-2 py-2 text-center ${slotClass}`}>
                                 {slot ? (
-                                  <span className={`inline-flex rounded-full px-2 py-1 text-[11px] font-semibold ${statusBayarClass(slot.statusBayar)}`}>
+                                  <button
+                                    type="button"
+                                    onClick={() => openPengadaanDetail(slot)}
+                                    className={`inline-flex rounded-full px-2 py-1 text-[11px] font-semibold transition hover:brightness-95 ${statusBayarClass(slot.statusBayar)}`}
+                                  >
                                     {slot.statusBayar}
-                                  </span>
+                                  </button>
                                 ) : "-"}
                               </td>,
                               <td key={`${row.kodeBarangVariant}-${slotName}-po`} className={`border border-slate-300 px-2 py-2 text-center ${slotClass}`}>
@@ -318,6 +367,115 @@ export default function Pemantauan30Page() {
           </div>
         )}
       </div>
+
+      {selectedSlot && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
+          <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <div>
+                <div className="text-lg font-bold text-slate-900">Detail Pengadaan {selectedSlot.kodeTPengadaan}</div>
+                <div className="text-sm text-slate-600">Status bayar: {selectedSlot.statusBayar}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedSlot(null);
+                  setPengadaanDetail(null);
+                  setDetailError(null);
+                }}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="max-h-[calc(90vh-72px)] overflow-auto px-5 py-4">
+              {detailLoading && <div className="py-8 text-sm text-slate-500">Memuat detail pengadaan...</div>}
+              {detailError && <div className="py-8 text-sm text-rose-600">{detailError}</div>}
+
+              {!detailLoading && !detailError && (
+                <>
+                  <div className="grid gap-4 md:grid-cols-4">
+                    <div className="rounded-xl border border-slate-200 p-4">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Supplier</div>
+                      <div className="mt-2 text-sm font-semibold text-slate-900">
+                        {pengadaanDetail?.header?.supplier_nama || pengadaanDetail?.header?.kode_supplier || "-"}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 p-4">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Tanggal</div>
+                      <div className="mt-2 text-sm font-semibold text-slate-900">{formatDate(pengadaanDetail?.header?.tgl)}</div>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 p-4">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Faktur Supplier</div>
+                      <div className="mt-2 text-sm font-semibold text-slate-900">{pengadaanDetail?.header?.no_faktur_supplier || "-"}</div>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 p-4">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total</div>
+                      <div className="mt-2 text-sm font-semibold text-slate-900">{formatCurrency(pengadaanDetail?.header?.total_akhir)}</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-4 md:grid-cols-3">
+                    <div className="rounded-xl border border-slate-200 p-4">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Tagihan</div>
+                      <div className="mt-2 text-sm font-semibold text-slate-900">{formatCurrency(pengadaanDetail?.header?.total_tagihan)}</div>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 p-4">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Dibayar</div>
+                      <div className="mt-2 text-sm font-semibold text-slate-900">{formatCurrency(pengadaanDetail?.header?.total_dibayar)}</div>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 p-4">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</div>
+                      <div className="mt-2">
+                        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusBayarClass(selectedSlot.statusBayar)}`}>
+                          {selectedSlot.statusBayar}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 overflow-x-auto rounded-xl border border-slate-200">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-slate-50 text-slate-700">
+                        <tr>
+                          <th className="border-b border-slate-200 px-3 py-2 text-left">Barang</th>
+                          <th className="border-b border-slate-200 px-3 py-2 text-left">Varian</th>
+                          <th className="border-b border-slate-200 px-3 py-2 text-left">Kode Varian</th>
+                          <th className="border-b border-slate-200 px-3 py-2 text-right">Qty</th>
+                          <th className="border-b border-slate-200 px-3 py-2 text-left">Satuan</th>
+                          <th className="border-b border-slate-200 px-3 py-2 text-right">Harga Beli</th>
+                          <th className="border-b border-slate-200 px-3 py-2 text-right">Subtotal</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(pengadaanDetail?.items || []).map((item, index) => (
+                          <tr key={`${item.kode_barang_variant || "row"}-${index}`} className="border-t border-slate-100">
+                            <td className="px-3 py-2">{item.nama_barang || "-"}</td>
+                            <td className="px-3 py-2">{item.nama_varian || "-"}</td>
+                            <td className="px-3 py-2 text-xs text-slate-500">{item.kode_barang_variant || "-"}</td>
+                            <td className="px-3 py-2 text-right">{formatNumber(item.qty)}</td>
+                            <td className="px-3 py-2">{item.satuan || "-"}</td>
+                            <td className="px-3 py-2 text-right">{formatCurrency(item.harga_beli)}</td>
+                            <td className="px-3 py-2 text-right">{formatCurrency(item.subtotal)}</td>
+                          </tr>
+                        ))}
+                        {(pengadaanDetail?.items || []).length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="px-3 py-6 text-center text-slate-500">
+                              Tidak ada detail item pengadaan.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
