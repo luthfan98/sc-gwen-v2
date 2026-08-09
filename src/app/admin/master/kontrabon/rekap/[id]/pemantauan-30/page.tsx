@@ -207,20 +207,40 @@ export default function Pemantauan30Page() {
         @media print {
           @page {
             size: landscape;
+            margin: 10mm;
           }
           body {
             background: #fff !important;
+          }
+          main {
+            padding: 0 !important;
           }
           .no-print {
             display: none !important;
           }
           .print-card {
+            break-inside: auto;
+            page-break-inside: auto;
+          }
+          .print-card > div:first-child {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+          table {
+            break-inside: auto;
+            page-break-inside: auto;
+          }
+          thead {
+            display: table-header-group;
+          }
+          tr {
+            break-inside: avoid;
             page-break-inside: avoid;
           }
         }
       `}</style>
 
-      <div className="mx-auto max-w-[1800px]">
+      <div className="mx-auto max-w-[1800px] print:max-w-none">
         <div className="no-print fixed bottom-6 right-6 z-40">
           <button
             type="button"
@@ -259,7 +279,7 @@ export default function Pemantauan30Page() {
           </div>
         </div>
 
-        <div className="mt-6 grid gap-4 md:grid-cols-4">
+        <div className="mt-6 grid gap-4 md:grid-cols-4 print:mt-3 print:gap-2">
           <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Tanggal Rekap</div>
             <div className="mt-2 text-lg font-bold text-slate-900">{formatDate(payload.header?.tgl_rekap)}</div>
@@ -332,7 +352,7 @@ export default function Pemantauan30Page() {
         {error && <div className="mt-6 rounded-2xl bg-white px-5 py-8 text-sm text-rose-600 shadow-sm">{error}</div>}
 
         {!loading && !error && (
-          <div className="mt-6 space-y-6">
+          <div className="mt-6 space-y-6 print:mt-2 print:space-y-3">
             {payload.cards.map((card, index) => (
               <section key={`${card.nomorKontrabon}-${card.kodeTPengadaan}-${index}`} className="print-card overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-sm">
                 <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 bg-slate-100 px-5 py-3">
