@@ -919,7 +919,7 @@ export default async function kontrabonRoutes(fastify) {
         const stockRes = await stockReq.query(`
           SELECT
             kode_barang_variant,
-            SUM(ISNULL(qty_baik, 0) - ISNULL(qty_rusak, 0)) AS stok_total
+            SUM(ISNULL(stok, 0)) AS stok_total
           FROM dbo.GWEN_mn_barang_gudang_variant
           WHERE kode_barang_variant IN (${stockParams})
             AND ISNULL(status, 1) = 1
