@@ -1,0 +1,32 @@
+{
+  "name": "kosmetik-store-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Fastify backend with HTTP/HTTPS, SQL Server, and upload support.",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@fastify/cors": "^8.5.0",
+    "@fastify/helmet": "^11.1.1",
+    "@fastify/multipart": "^8.3.1",
+    "@fastify/static": "^7.0.4",
+    "dotenv": "^16.4.5",
+    "fastify": "^4.26.2",
+    "image-size": "^2.0.2",
+    "luxon": "^3.7.2",
+    "mssql": "^10.0.2",
+    "pino": "^9.3.2",
+    "puppeteer": "^23.11.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0",
+    "pino-pretty": "^11.2.2"
+  }
+}

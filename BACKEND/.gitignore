@@ -1,0 +1,7 @@
+node_modules
+.env
+uploads/*
+certs/*
+npm-debug.log*
+pnpm-lock.yaml
+yarn.lock
