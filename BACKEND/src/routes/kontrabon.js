@@ -858,11 +858,27 @@ export default async function kontrabonRoutes(fastify) {
       });
       const pengadaanParams = uniquePengadaanCodes.map((_, idx) => `@kode_${idx}`).join(", ");
       const pengadaanDetailRes = await pengadaanReq.query(`
+        WITH pembayaran AS (
+          SELECT
+            kode_t_pengadaan,
+            SUM(ISNULL(total_tagihan, 0)) AS total_tagihan,
+            SUM(ISNULL(total_dibayar, 0)) AS total_dibayar
+          FROM dbo.GWEN_t_tagihan
+          WHERE ISNULL(is_void, 0) = 0
+            AND ISNULL(status, 1) = 1
+          GROUP BY kode_t_pengadaan
+        )
         SELECT
           tp.kode_t_pengadaan,
           tp.tgl,
           tp.kode_supplier,
           s.nama AS nama_supplier,
+          CASE
+            WHEN ISNULL(pay.total_tagihan, 0) > 0
+              AND ISNULL(pay.total_dibayar, 0) >= ISNULL(pay.total_tagihan, 0)
+              THEN 'Lunas'
+            ELSE 'Belum Lunas'
+          END AS status_bayar,
           dp.kode_barang_variant,
           b.kode_barang,
           COALESCE(v.nama_varian, dp.nama_varian, dp.nama_barang, b.nama) AS nama_barang,
@@ -881,6 +897,8 @@ export default async function kontrabonRoutes(fastify) {
           ON b.id_barang = v.id_barang
         LEFT JOIN dbo.m_supplier s
           ON s.kode_supplier COLLATE DATABASE_DEFAULT = tp.kode_supplier COLLATE DATABASE_DEFAULT
+        LEFT JOIN pembayaran pay
+          ON pay.kode_t_pengadaan COLLATE DATABASE_DEFAULT = tp.kode_t_pengadaan COLLATE DATABASE_DEFAULT
         WHERE tp.kode_t_pengadaan IN (${pengadaanParams})
         ORDER BY tp.tgl DESC, tp.kode_t_pengadaan DESC, dp.kode_d_pengadaan ASC;
       `);
@@ -967,10 +985,14 @@ export default async function kontrabonRoutes(fastify) {
       }
 
       const today = new Date();
+      const pengadaanStatusMap = new Map();
       const detailsByPengadaan = new Map();
       pengadaanDetails.forEach((detail) => {
         const kodePengadaan = String(detail.kode_t_pengadaan || "").trim();
         if (!kodePengadaan) return;
+        if (!pengadaanStatusMap.has(kodePengadaan)) {
+          pengadaanStatusMap.set(kodePengadaan, String(detail.status_bayar || "Belum Lunas"));
+        }
         const variantCode = String(detail.kode_barang_variant || "").trim();
         const currentStockBase = Number(stockMap.get(variantCode) ?? 0);
         const histories = (historyMap.get(variantCode) || []).map((row) => ({
@@ -1032,6 +1054,7 @@ export default async function kontrabonRoutes(fastify) {
 
       const cards = cardSources.map((card) => ({
         ...card,
+        statusBayar: pengadaanStatusMap.get(card.kodeTPengadaan) || "Belum Lunas",
         umurNotaHari: card.tglFaktur
           ? Math.floor((today.getTime() - new Date(card.tglFaktur).getTime()) / (1000 * 60 * 60 * 24))
           : null,
@@ -1989,3 +2012,4 @@ export default async function kontrabonRoutes(fastify) {
     }
   });
 }
+

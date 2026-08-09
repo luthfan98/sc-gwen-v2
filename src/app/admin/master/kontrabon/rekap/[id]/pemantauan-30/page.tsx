@@ -39,6 +39,7 @@ type PemantauanCard = {
   nomorKontrabon: string;
   namaSupplier: string | null;
   total: number;
+  statusBayar: string;
   noFaktur: string | null;
   tglFaktur: string | null;
   tglKontrabon: string | null;
@@ -85,6 +86,11 @@ const slotCellClass = (slot?: PemantauanSlot | null) => {
       : "bg-emerald-200 text-emerald-950";
   }
   return slot.isCurrent ? "bg-rose-200 text-rose-950" : "bg-slate-100 text-slate-800";
+};
+
+const statusBayarClass = (value?: string | null) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "lunas" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800";
 };
 
 export default function Pemantauan30Page() {
@@ -236,6 +242,7 @@ export default function Pemantauan30Page() {
                       <tr className="bg-[#daedff] text-slate-900">
                         <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-left">Nama Barang</th>
                         <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-left">Supplier</th>
+                        <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-center">Status Bayar</th>
                         {slotOrder.map((slot) => (
                           <th key={slot} colSpan={4} className="border border-slate-300 px-3 py-2 text-center">
                             Pengadaan {slot}
@@ -260,6 +267,11 @@ export default function Pemantauan30Page() {
                             <div className="text-xs text-slate-500">{row.kodeBarangVariant}</div>
                           </td>
                           <td className="border border-slate-300 px-3 py-2">{row.namaSupplier || "-"}</td>
+                          <td className="border border-slate-300 px-3 py-2 text-center">
+                            <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusBayarClass(card.statusBayar)}`}>
+                              {card.statusBayar}
+                            </span>
+                          </td>
                           {slotOrder.flatMap((slotName) => {
                             const slot = row.slots.find((item) => item.slot === slotName) || null;
                             const slotClass = slotCellClass(slot);
@@ -285,7 +297,7 @@ export default function Pemantauan30Page() {
                       ))}
                       {card.data.length === 0 && (
                         <tr>
-                          <td colSpan={23} className="border border-slate-300 px-4 py-6 text-center text-slate-500">
+                          <td colSpan={24} className="border border-slate-300 px-4 py-6 text-center text-slate-500">
                             Tidak ada detail barang untuk pengadaan ini.
                           </td>
                         </tr>
