@@ -354,10 +354,10 @@ export default function Pemantauan30Page() {
                 <div className="overflow-hidden">
                   <table className="w-full table-fixed border-collapse text-[12px] leading-tight">
                     <colgroup>
-                      <col className="w-[34%]" />
-                      <col className="w-[12.5%]" />
+                      <col className="w-[26%]" />
+                      <col className="w-[12%]" />
                       {Array.from({ length: 25 }).map((_, index) => (
-                        <col key={`slot-col-${index}`} className="w-[2.02%]" />
+                        <col key={`slot-col-${index}`} className="w-[2.36%]" />
                       ))}
                       <col className="w-[3%]" />
                     </colgroup>
