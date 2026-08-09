@@ -938,11 +938,27 @@ export default async function kontrabonRoutes(fastify) {
         });
         const historyParams = variantCodes.map((_, idx) => `@history_variant_${idx}`).join(", ");
         const historyRes = await historyReq.query(`
-          WITH ranked AS (
+          WITH pembayaran AS (
+            SELECT
+              kode_t_pengadaan,
+              SUM(ISNULL(total_tagihan, 0)) AS total_tagihan,
+              SUM(ISNULL(total_dibayar, 0)) AS total_dibayar
+          FROM dbo.GWEN_t_tagihan
+            WHERE ISNULL(is_void, 0) = 0
+              AND ISNULL(status, 1) = 1
+            GROUP BY kode_t_pengadaan
+          ),
+          ranked AS (
             SELECT
               dp.kode_barang_variant,
               tp.kode_t_pengadaan,
               tp.tgl,
+              CASE
+                WHEN ISNULL(pay.total_tagihan, 0) > 0
+                  AND ISNULL(pay.total_dibayar, 0) >= ISNULL(pay.total_tagihan, 0)
+                  THEN 'Lunas'
+                ELSE 'Belum Lunas'
+              END AS status_bayar,
               dp.qty,
               dp.satuan,
               b.satuan_1,
@@ -959,6 +975,8 @@ export default async function kontrabonRoutes(fastify) {
               ON v.kode_barang_variant COLLATE DATABASE_DEFAULT = dp.kode_barang_variant COLLATE DATABASE_DEFAULT
             LEFT JOIN dbo.m_barang b
               ON b.id_barang = v.id_barang
+            LEFT JOIN pembayaran pay
+              ON pay.kode_t_pengadaan COLLATE DATABASE_DEFAULT = tp.kode_t_pengadaan COLLATE DATABASE_DEFAULT
             WHERE dp.kode_barang_variant IN (${historyParams})
               AND ISNULL(dp.is_active, 1) = 1
           )
@@ -966,6 +984,7 @@ export default async function kontrabonRoutes(fastify) {
             kode_barang_variant,
             kode_t_pengadaan,
             tgl,
+            status_bayar,
             qty,
             satuan,
             satuan_1,
@@ -985,19 +1004,16 @@ export default async function kontrabonRoutes(fastify) {
       }
 
       const today = new Date();
-      const pengadaanStatusMap = new Map();
       const detailsByPengadaan = new Map();
       pengadaanDetails.forEach((detail) => {
         const kodePengadaan = String(detail.kode_t_pengadaan || "").trim();
         if (!kodePengadaan) return;
-        if (!pengadaanStatusMap.has(kodePengadaan)) {
-          pengadaanStatusMap.set(kodePengadaan, String(detail.status_bayar || "Belum Lunas"));
-        }
         const variantCode = String(detail.kode_barang_variant || "").trim();
         const currentStockBase = Number(stockMap.get(variantCode) ?? 0);
         const histories = (historyMap.get(variantCode) || []).map((row) => ({
           kodeTPengadaan: String(row.kode_t_pengadaan || "").trim(),
           tgl: row.tgl,
+          statusBayar: String(row.status_bayar || "Belum Lunas"),
           qty: Number(row.qty ?? 0),
           satuan: row.satuan,
           qtyBase: toBaseQty({
@@ -1028,6 +1044,7 @@ export default async function kontrabonRoutes(fastify) {
           return {
             slot: `K${index + 1}`,
             kodeTPengadaan: row.kodeTPengadaan,
+            statusBayar: row.statusBayar,
             qty: qtyDisplay,
             satuan: row.satuan,
             sisa: sisaDisplay,
@@ -1054,7 +1071,6 @@ export default async function kontrabonRoutes(fastify) {
 
       const cards = cardSources.map((card) => ({
         ...card,
-        statusBayar: pengadaanStatusMap.get(card.kodeTPengadaan) || "Belum Lunas",
         umurNotaHari: card.tglFaktur
           ? Math.floor((today.getTime() - new Date(card.tglFaktur).getTime()) / (1000 * 60 * 60 * 24))
           : null,

@@ -15,6 +15,7 @@ type PemantauanHeader = {
 type PemantauanSlot = {
   slot: string;
   kodeTPengadaan: string;
+  statusBayar: string;
   qty: number;
   satuan: string | null;
   sisa: number;
@@ -39,7 +40,6 @@ type PemantauanCard = {
   nomorKontrabon: string;
   namaSupplier: string | null;
   total: number;
-  statusBayar: string;
   noFaktur: string | null;
   tglFaktur: string | null;
   tglKontrabon: string | null;
@@ -237,14 +237,13 @@ export default function Pemantauan30Page() {
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="min-w-[1850px] w-full border-collapse text-sm">
+                  <table className="min-w-[2250px] w-full border-collapse text-sm">
                     <thead>
                       <tr className="bg-[#daedff] text-slate-900">
                         <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-left">Nama Barang</th>
                         <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-left">Supplier</th>
-                        <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-center">Status Bayar</th>
                         {slotOrder.map((slot) => (
-                          <th key={slot} colSpan={4} className="border border-slate-300 px-3 py-2 text-center">
+                          <th key={slot} colSpan={5} className="border border-slate-300 px-3 py-2 text-center">
                             Pengadaan {slot}
                           </th>
                         ))}
@@ -252,6 +251,7 @@ export default function Pemantauan30Page() {
                       </tr>
                       <tr className="bg-slate-50 text-slate-700">
                         {slotOrder.flatMap((slot) => [
+                          <th key={`${slot}-status`} className="border border-slate-300 px-2 py-2 text-center">Status</th>,
                           <th key={`${slot}-po`} className="border border-slate-300 px-2 py-2 text-center">PO</th>,
                           <th key={`${slot}-pct`} className="border border-slate-300 px-2 py-2 text-center">%</th>,
                           <th key={`${slot}-sisa`} className="border border-slate-300 px-2 py-2 text-center">Sisa</th>,
@@ -267,15 +267,17 @@ export default function Pemantauan30Page() {
                             <div className="text-xs text-slate-500">{row.kodeBarangVariant}</div>
                           </td>
                           <td className="border border-slate-300 px-3 py-2">{row.namaSupplier || "-"}</td>
-                          <td className="border border-slate-300 px-3 py-2 text-center">
-                            <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusBayarClass(card.statusBayar)}`}>
-                              {card.statusBayar}
-                            </span>
-                          </td>
                           {slotOrder.flatMap((slotName) => {
                             const slot = row.slots.find((item) => item.slot === slotName) || null;
                             const slotClass = slotCellClass(slot);
                             return [
+                              <td key={`${row.kodeBarangVariant}-${slotName}-status`} className={`border border-slate-300 px-2 py-2 text-center ${slotClass}`}>
+                                {slot ? (
+                                  <span className={`inline-flex rounded-full px-2 py-1 text-[11px] font-semibold ${statusBayarClass(slot.statusBayar)}`}>
+                                    {slot.statusBayar}
+                                  </span>
+                                ) : "-"}
+                              </td>,
                               <td key={`${row.kodeBarangVariant}-${slotName}-po`} className={`border border-slate-300 px-2 py-2 text-center ${slotClass}`}>
                                 {slot ? `${formatNumber(slot.qty)} ${slot.satuan || ""}`.trim() : "-"}
                               </td>,
@@ -297,7 +299,7 @@ export default function Pemantauan30Page() {
                       ))}
                       {card.data.length === 0 && (
                         <tr>
-                          <td colSpan={24} className="border border-slate-300 px-4 py-6 text-center text-slate-500">
+                          <td colSpan={28} className="border border-slate-300 px-4 py-6 text-center text-slate-500">
                             Tidak ada detail barang untuk pengadaan ini.
                           </td>
                         </tr>
