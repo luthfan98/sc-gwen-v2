@@ -193,6 +193,17 @@ export default function Pemantauan30Page() {
   return (
     <div className="min-h-screen bg-[#eef3ff] px-6 py-6">
       <style jsx global>{`
+        @keyframes skeleton-pulse {
+          0% {
+            opacity: 0.55;
+          }
+          50% {
+            opacity: 1;
+          }
+          100% {
+            opacity: 0.55;
+          }
+        }
         @media print {
           @page {
             size: landscape;
@@ -269,7 +280,55 @@ export default function Pemantauan30Page() {
           </div>
         </div>
 
-        {loading && <div className="mt-6 rounded-2xl bg-white px-5 py-8 text-sm text-slate-500 shadow-sm">Memuat data...</div>}
+        {loading && (
+          <div className="mt-6 space-y-6">
+            <div className="grid gap-4 md:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={`summary-skeleton-${index}`} className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+                  <div className="h-3 w-24 rounded bg-slate-200 [animation:skeleton-pulse_1.4s_ease-in-out_infinite]" />
+                  <div className="mt-4 h-8 w-36 rounded bg-slate-200 [animation:skeleton-pulse_1.4s_ease-in-out_infinite]" />
+                </div>
+              ))}
+            </div>
+
+            {Array.from({ length: 2 }).map((_, cardIndex) => (
+              <section
+                key={`card-skeleton-${cardIndex}`}
+                className="overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-sm"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 bg-slate-100 px-5 py-4">
+                  <div className="space-y-3">
+                    <div className="h-7 w-80 rounded bg-slate-200 [animation:skeleton-pulse_1.4s_ease-in-out_infinite]" />
+                    <div className="h-4 w-72 rounded bg-slate-200 [animation:skeleton-pulse_1.4s_ease-in-out_infinite]" />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-4 w-48 rounded bg-slate-200 [animation:skeleton-pulse_1.4s_ease-in-out_infinite]" />
+                    <div className="h-4 w-40 rounded bg-slate-200 [animation:skeleton-pulse_1.4s_ease-in-out_infinite]" />
+                    <div className="h-5 w-32 rounded bg-slate-200 [animation:skeleton-pulse_1.4s_ease-in-out_infinite]" />
+                  </div>
+                </div>
+                <div className="p-5">
+                  <div className="overflow-hidden rounded-xl border border-slate-200">
+                    <div className="grid grid-cols-8 gap-0 border-b border-slate-200 bg-slate-50">
+                      {Array.from({ length: 8 }).map((_, index) => (
+                        <div key={`header-cell-${cardIndex}-${index}`} className="h-12 border-r border-slate-200 bg-slate-100 [animation:skeleton-pulse_1.4s_ease-in-out_infinite]" />
+                      ))}
+                    </div>
+                    {Array.from({ length: 5 }).map((_, rowIndex) => (
+                      <div key={`row-${cardIndex}-${rowIndex}`} className="grid grid-cols-8 gap-0 border-b border-slate-100 last:border-b-0">
+                        {Array.from({ length: 8 }).map((_, colIndex) => (
+                          <div key={`cell-${cardIndex}-${rowIndex}-${colIndex}`} className="h-14 border-r border-slate-100 bg-white px-3 py-3">
+                            <div className="h-full rounded bg-slate-100 [animation:skeleton-pulse_1.4s_ease-in-out_infinite]" />
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
         {error && <div className="mt-6 rounded-2xl bg-white px-5 py-8 text-sm text-rose-600 shadow-sm">{error}</div>}
 
         {!loading && !error && (
