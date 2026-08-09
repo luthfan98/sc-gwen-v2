@@ -201,6 +201,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const isPrintPage =
     pathname?.startsWith("/admin/master/kontrabon/history/print") ||
     (pathname?.startsWith("/admin/master/kontrabon/rekap/") && pathname?.endsWith("/print"));
+  const isKontrabonPemantauanPage =
+    pathname?.startsWith("/admin/master/kontrabon/rekap/") && pathname?.endsWith("/pemantauan-30");
   const roleLower = (roleName || "").toLowerCase();
   const isWarehouseStaff =
     roleLower.includes("staff_gudang") || roleLower.includes("staff gudang") || roleLower.includes("gudang");
@@ -211,6 +213,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     pathname === "/admin/purchasing/permintaan-pengadaan/new" ||
     pathname === "/admin/dashboard-pramuniaga" ||
     pathname?.startsWith("/admin/logistik/terima-pemindahan") ||
+    isKontrabonPemantauanPage ||
     isPrintPage;
   const navGroupsForRole = useMemo(() => {
     const dashboardHref = isPramuniaga ? "/admin/dashboard-pramuniaga" : "/admin/dashboard";
