@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { CheckCircle2, History, Plus, RefreshCcw, Trash2, XCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Select, { type SingleValue } from "react-select";
@@ -724,13 +723,19 @@ export default function HistoryKontrabonPage() {
           </button>
         </div>
         <div className="flex items-center gap-3">
-          <Link
-            href="/admin/master/kontrabon/rekap"
+          <button
+            type="button"
+            onClick={() => {
+              const nextTab = window.open("about:blank", "_blank", "noopener,noreferrer");
+              if (nextTab) {
+                nextTab.location.href = "/admin/master/kontrabon/rekap";
+              }
+            }}
             className="inline-flex items-center gap-2 rounded-xl bg-slate-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm"
           >
             <History className="h-4 w-4" />
             Rasio Kontrabon
-          </Link>
+          </button>
           <button
             className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm"
             onClick={() => setShowModal(true)}
