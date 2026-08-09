@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { Printer, Plus, Wallet, Bell, ClipboardList, Trash2, Search, X, History } from "lucide-react";
+import { Printer, Plus, Wallet, ClipboardList, Trash2, Search, X, History } from "lucide-react";
 import Swal from "sweetalert2";
 
 type RekapHeader = {
@@ -91,6 +91,14 @@ export default function KontrabonRekapDetailPage() {
   const [roleName, setRoleName] = useState<string | null>(null);
   const roleLower = String(roleName || "").toLowerCase();
   const isSuperAdmin = roleLower === "super_admin";
+  const openPemantauan30 = () => {
+    if (!id) return;
+    const nextTab = window.open("", "_blank");
+    if (nextTab) {
+      nextTab.opener = null;
+      nextTab.location.assign(`/admin/master/kontrabon/rekap/${id}/pemantauan-30`);
+    }
+  };
 
   const fetchDetail = async (signal?: AbortSignal) => {
     if (!id) return;
@@ -374,28 +382,10 @@ export default function KontrabonRekapDetailPage() {
             <button
               type="button"
               className="h-9 px-4 rounded-md bg-slate-700 text-white text-sm font-semibold flex items-center gap-2"
-              onClick={() => {
-                const nextTab = window.open("about:blank", "_blank", "noopener,noreferrer");
-                if (nextTab) {
-                  nextTab.location.href = `/admin/master/kontrabon/rekap/${id}/pemantauan-30`;
-                }
-              }}
+              onClick={openPemantauan30}
             >
               <History className="w-4 h-4" />
               Rasio Kontrabon
-            </button>
-            <button
-              type="button"
-              className="h-9 px-4 rounded-md bg-slate-700 text-white text-sm font-semibold flex items-center gap-2"
-              onClick={() => {
-                const nextTab = window.open("about:blank", "_blank", "noopener,noreferrer");
-                if (nextTab) {
-                  nextTab.location.href = `/admin/master/kontrabon/rekap/${id}/pemantauan-30`;
-                }
-              }}
-            >
-              <Bell className="w-4 h-4" />
-              Pemantauan Stok
             </button>
             <button
               className="h-9 px-4 rounded-md bg-slate-700 text-white text-sm font-semibold flex items-center gap-2"
