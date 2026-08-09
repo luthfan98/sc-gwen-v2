@@ -407,7 +407,7 @@ export default function Pemantauan30Page() {
                               </td>,
                               <td key={`${row.kodeBarangVariant}-${slotName}-po`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass}`}>
                                 <span className="break-words">
-                                  {slot ? `${formatNumber(slot.qty)} ${slot.satuan || ""}`.trim() : "-"}
+                                  {slot ? formatNumber(slot.qty) : "-"}
                                 </span>
                               </td>,
                               <td key={`${row.kodeBarangVariant}-${slotName}-pct`} className={`border border-slate-300 px-1 py-2 text-center font-semibold ${slotClass}`}>
