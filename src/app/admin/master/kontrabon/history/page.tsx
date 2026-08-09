@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { CheckCircle2, History, Plus, RefreshCcw, Trash2, XCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Select, { type SingleValue } from "react-select";
@@ -722,14 +723,23 @@ export default function HistoryKontrabonPage() {
             Tampilkan Belum Lunas
           </button>
         </div>
-        <button
-          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm"
-          onClick={() => setShowModal(true)}
-          type="button"
-        >
-          <Plus className="h-4 w-4" />
-          Tambah
-        </button>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/admin/master/kontrabon/rekap"
+            className="inline-flex items-center gap-2 rounded-xl bg-slate-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm"
+          >
+            <History className="h-4 w-4" />
+            Rasio Kontrabon
+          </Link>
+          <button
+            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm"
+            onClick={() => setShowModal(true)}
+            type="button"
+          >
+            <Plus className="h-4 w-4" />
+            Tambah
+          </button>
+        </div>
       </div>
 
       <div className="bg-white border border-gray-100 rounded-2xl shadow-sm w-full max-w-[calc(100vw-330px)] overflow-hidden">
