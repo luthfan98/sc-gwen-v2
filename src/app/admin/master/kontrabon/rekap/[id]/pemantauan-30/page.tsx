@@ -374,7 +374,7 @@ export default function Pemantauan30Page() {
                       </tr>
                       <tr className="bg-slate-50 text-slate-700">
                         {slotOrder.flatMap((slot) => [
-                          <th key={`${slot}-status`} className="border border-slate-300 px-2 py-2 text-center">Status</th>,
+                          <th key={`${slot}-status`} className="border border-slate-300 px-2 py-2 text-center">S</th>,
                           <th key={`${slot}-po`} className="border border-slate-300 px-2 py-2 text-center">PO</th>,
                           <th key={`${slot}-pct`} className="border border-slate-300 px-2 py-2 text-center">%</th>,
                           <th key={`${slot}-sisa`} className="border border-slate-300 px-2 py-2 text-center">Sisa</th>,
@@ -401,7 +401,7 @@ export default function Pemantauan30Page() {
                                     onClick={() => openPengadaanDetail(slot)}
                                     className={`inline-flex max-w-full items-center justify-center rounded-full px-1.5 py-1 text-[10px] font-semibold transition hover:brightness-95 ${statusBayarClass(slot.statusBayar)}`}
                                   >
-                                    {slot.statusBayar}
+                                    {slot.statusBayar === "Lunas" ? "L" : "B"}
                                   </button>
                                 ) : "-"}
                               </td>,
