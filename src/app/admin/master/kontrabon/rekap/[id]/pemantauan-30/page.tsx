@@ -210,6 +210,17 @@ export default function Pemantauan30Page() {
       `}</style>
 
       <div className="mx-auto max-w-[1800px]">
+        <div className="no-print fixed bottom-6 right-6 z-40">
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-xl hover:bg-slate-800"
+          >
+            <Printer className="h-4 w-4" />
+            Print
+          </button>
+        </div>
+
         <div className="no-print flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Pemantauan Kontrabon 30%</h1>
