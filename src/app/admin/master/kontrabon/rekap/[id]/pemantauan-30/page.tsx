@@ -125,6 +125,13 @@ const slotGroupBorderClass = (slot: string) => {
   return normalized === "K1" ? "border-r-2 border-r-slate-500" : "border-r-2 border-r-slate-400";
 };
 
+const currentSlotBorderClass = (slot: PemantauanSlot | null, position: "first" | "middle" | "last") => {
+  if (!slot?.isCurrent) return "";
+  if (position === "first") return "border-l-2 border-y-2 border-l-sky-700 border-y-sky-700";
+  if (position === "last") return "border-r-2 border-y-2 border-r-sky-700 border-y-sky-700";
+  return "border-y-2 border-y-sky-700";
+};
+
 export default function Pemantauan30Page() {
   const params = useParams();
   const id = typeof params?.id === "string" ? params.id : "";
@@ -428,7 +435,10 @@ export default function Pemantauan30Page() {
                             const slot = row.slots.find((item) => item.slot === slotName) || null;
                             const slotClass = slotCellClass(slot);
                             return [
-                              <td key={`${row.kodeBarangVariant}-${slotName}-status`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass}`}>
+                              <td
+                                key={`${row.kodeBarangVariant}-${slotName}-status`}
+                                className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${currentSlotBorderClass(slot, "first")}`}
+                              >
                                 {slot ? (
                                   <button
                                     type="button"
@@ -439,20 +449,29 @@ export default function Pemantauan30Page() {
                                   </button>
                                 ) : "-"}
                               </td>,
-                              <td key={`${row.kodeBarangVariant}-${slotName}-po`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass}`}>
+                              <td
+                                key={`${row.kodeBarangVariant}-${slotName}-po`}
+                                className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${currentSlotBorderClass(slot, "middle")}`}
+                              >
                                 <span className="break-words">
                                   {slot ? formatNumber(slot.qty) : "-"}
                                 </span>
                               </td>,
-                              <td key={`${row.kodeBarangVariant}-${slotName}-pct`} className={`border border-slate-300 px-1 py-2 text-center font-semibold ${slotClass}`}>
+                              <td
+                                key={`${row.kodeBarangVariant}-${slotName}-pct`}
+                                className={`border border-slate-300 px-1 py-2 text-center font-semibold ${slotClass} ${currentSlotBorderClass(slot, "middle")}`}
+                              >
                                 {slot?.persen !== null && slot?.persen !== undefined ? `${formatNumber(slot.persen)}%` : "-"}
                               </td>,
-                              <td key={`${row.kodeBarangVariant}-${slotName}-sisa`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass}`}>
+                              <td
+                                key={`${row.kodeBarangVariant}-${slotName}-sisa`}
+                                className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${currentSlotBorderClass(slot, "middle")}`}
+                              >
                                 {slot ? formatNumber(slot.sisa) : "-"}
                               </td>,
                               <td
                                 key={`${row.kodeBarangVariant}-${slotName}-umur`}
-                                className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${slotGroupBorderClass(slotName)}`}
+                                className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${slotGroupBorderClass(slotName)} ${currentSlotBorderClass(slot, "last")}`}
                               >
                                 {slot?.umurHari !== null && slot?.umurHari !== undefined ? `${slot.umurHari} hari` : "-"}
                               </td>,
