@@ -31,7 +31,6 @@ type PemantauanRow = {
   namaSupplier: string | null;
   stokGudang: number;
   stokToko: number;
-  stokSaatIni: number;
   qtyPengadaan: number;
   satuanPengadaan: string | null;
   slots: PemantauanSlot[];

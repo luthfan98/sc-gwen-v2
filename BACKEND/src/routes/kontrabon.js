@@ -1103,7 +1103,6 @@ export default async function kontrabonRoutes(fastify) {
           namaSupplier: detail.nama_supplier,
           stokGudang: Number(stockEntry.gudang ?? 0),
           stokToko: Number(stockEntry.toko ?? 0),
-          stokSaatIni: currentStockBase,
           qtyPengadaan: Number(detail.qty ?? 0),
           satuanPengadaan: detail.satuan,
           slots,
