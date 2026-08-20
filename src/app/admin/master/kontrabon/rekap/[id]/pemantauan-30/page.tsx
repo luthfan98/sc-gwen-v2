@@ -29,6 +29,8 @@ type PemantauanRow = {
   kodeBarang: string | null;
   namaBarang: string;
   namaSupplier: string | null;
+  stokGudang: number;
+  stokToko: number;
   stokSaatIni: number;
   qtyPengadaan: number;
   satuanPengadaan: string | null;
@@ -379,12 +381,13 @@ export default function Pemantauan30Page() {
                 <div className="overflow-hidden">
                   <table className="w-full table-fixed border-collapse text-[12px] leading-tight">
                     <colgroup>
-                      <col className="w-[26%]" />
-                      <col className="w-[12%]" />
+                      <col className="w-[24%]" />
+                      <col className="w-[11%]" />
                       {Array.from({ length: 25 }).map((_, index) => (
-                        <col key={`slot-col-${index}`} className="w-[2.36%]" />
+                        <col key={`slot-col-${index}`} className="w-[2.2%]" />
                       ))}
-                      <col className="w-[3%]" />
+                      <col className="w-[5%]" />
+                      <col className="w-[5%]" />
                     </colgroup>
                     <thead>
                       <tr className="bg-[#daedff] text-slate-900">
@@ -399,7 +402,8 @@ export default function Pemantauan30Page() {
                             Pengadaan {slot}
                           </th>
                         ))}
-                        <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-center">Stok Saat Ini</th>
+                        <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-center">Stok Gudang</th>
+                        <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-center">Stok Toko</th>
                       </tr>
                       <tr className="bg-slate-50 text-slate-700">
                         {slotOrder.flatMap((slot) => [
@@ -454,13 +458,16 @@ export default function Pemantauan30Page() {
                             ];
                           })}
                           <td className="border border-slate-300 px-3 py-2 text-center font-semibold text-slate-900">
-                            {formatNumber(row.stokSaatIni)}
+                            {formatNumber(row.stokGudang)}
+                          </td>
+                          <td className="border border-slate-300 px-3 py-2 text-center font-semibold text-slate-900">
+                            {formatNumber(row.stokToko)}
                           </td>
                         </tr>
                       ))}
                       {card.data.length === 0 && (
                         <tr>
-                          <td colSpan={28} className="border border-slate-300 px-4 py-6 text-center text-slate-500">
+                          <td colSpan={29} className="border border-slate-300 px-4 py-6 text-center text-slate-500">
                             Tidak ada detail barang untuk pengadaan ini.
                           </td>
                         </tr>

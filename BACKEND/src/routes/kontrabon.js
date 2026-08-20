@@ -942,6 +942,8 @@ export default async function kontrabonRoutes(fastify) {
           )
           SELECT
             variants.kode_barang_variant,
+            ISNULL(gudang_stock.stok_gudang, 0) AS stok_gudang,
+            ISNULL(toko_stock.stok_toko, 0) AS stok_toko,
             ISNULL(gudang_stock.stok_gudang, 0) + ISNULL(toko_stock.stok_toko, 0) AS stok_total
           FROM (
             SELECT DISTINCT kode_barang_variant
@@ -961,7 +963,11 @@ export default async function kontrabonRoutes(fastify) {
             ON toko_stock.kode_barang_variant COLLATE DATABASE_DEFAULT = variants.kode_barang_variant COLLATE DATABASE_DEFAULT;
         `);
         (stockRes.recordset || []).forEach((row) => {
-          stockMap.set(String(row.kode_barang_variant), Number(row.stok_total ?? 0));
+          stockMap.set(String(row.kode_barang_variant), {
+            gudang: Number(row.stok_gudang ?? 0),
+            toko: Number(row.stok_toko ?? 0),
+            total: Number(row.stok_total ?? 0),
+          });
         });
       }
 
@@ -1044,7 +1050,8 @@ export default async function kontrabonRoutes(fastify) {
         const kodePengadaan = String(detail.kode_t_pengadaan || "").trim();
         if (!kodePengadaan) return;
         const variantCode = String(detail.kode_barang_variant || "").trim();
-        const currentStockBase = Number(stockMap.get(variantCode) ?? 0);
+        const stockEntry = stockMap.get(variantCode) || { gudang: 0, toko: 0, total: 0 };
+        const currentStockBase = Number(stockEntry.total ?? 0);
         const histories = (historyMap.get(variantCode) || []).map((row) => ({
           kodeTPengadaan: String(row.kode_t_pengadaan || "").trim(),
           tgl: row.tgl,
@@ -1094,6 +1101,8 @@ export default async function kontrabonRoutes(fastify) {
           kodeBarang: detail.kode_barang,
           namaBarang: detail.nama_barang,
           namaSupplier: detail.nama_supplier,
+          stokGudang: Number(stockEntry.gudang ?? 0),
+          stokToko: Number(stockEntry.toko ?? 0),
           stokSaatIni: currentStockBase,
           qtyPengadaan: Number(detail.qty ?? 0),
           satuanPengadaan: detail.satuan,
