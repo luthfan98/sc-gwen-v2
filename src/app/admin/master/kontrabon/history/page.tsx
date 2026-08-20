@@ -114,7 +114,6 @@ export default function HistoryKontrabonPage() {
   const [pengadaanRows, setPengadaanRows] = useState<
     { id: string; kode_t_pengadaan: string; nominal: string }[]
   >([{ id: "row-1", kode_t_pengadaan: "", nominal: "" }]);
-  const [activePreviewKode, setActivePreviewKode] = useState("");
   const [pengadaanPreviewMap, setPengadaanPreviewMap] = useState<Record<string, PengadaanPreviewPayload>>({});
   const [pengadaanPreviewLoading, setPengadaanPreviewLoading] = useState<Record<string, boolean>>({});
   const [nominalFakturInput, setNominalFakturInput] = useState("");
@@ -704,6 +703,16 @@ export default function HistoryKontrabonPage() {
     [nominalFakturValue, biayaLainTotal]
   );
 
+  const selectedPreviewCodes = useMemo(
+    () =>
+      [...new Set(
+        pengadaanRows
+          .map((row) => String(row.kode_t_pengadaan || "").trim())
+          .filter(Boolean)
+      )],
+    [pengadaanRows]
+  );
+
   useEffect(() => {
     if (!nominalFakturManual) {
       setNominalFakturInput(nominalFakturTotal ? String(nominalFakturTotal) : "");
@@ -751,16 +760,11 @@ export default function HistoryKontrabonPage() {
 
   useEffect(() => {
     if (!showModal) return;
-    const selectedCodes = [...new Set(
-      pengadaanRows
-        .map((row) => String(row.kode_t_pengadaan || "").trim())
-        .filter(Boolean)
-    )];
-    selectedCodes.forEach((code) => {
+    selectedPreviewCodes.forEach((code) => {
       if (pengadaanPreviewMap[code] || pengadaanPreviewLoading[code]) return;
       fetchPengadaanPreview(code);
     });
-  }, [showModal, pengadaanRows, pengadaanPreviewMap, pengadaanPreviewLoading, fetchPengadaanPreview]);
+  }, [showModal, selectedPreviewCodes, pengadaanPreviewMap, pengadaanPreviewLoading, fetchPengadaanPreview]);
 
   return (
     <div className="min-h-screen bg-slate-100/60 p-4 md:p-6 space-y-6 overflow-x-hidden">
@@ -1086,7 +1090,6 @@ export default function HistoryKontrabonPage() {
                                   }))
                                 : [{ id: "row-1", kode_t_pengadaan: "", nominal: "" }];
                               setPengadaanRows(mappedRows);
-                              setActivePreviewKode(list[0] || "");
                               setNominalFakturInput(String(getNominalFaktur(detail?.header || row) || ""));
                               if (row.kode_supplier) {
                                 fetchPengadaanForSupplier(row.kode_supplier, list);
@@ -1103,7 +1106,6 @@ export default function HistoryKontrabonPage() {
                                     }))
                                   : [{ id: "row-1", kode_t_pengadaan: "", nominal: "" }]
                               );
-                              setActivePreviewKode(list[0] || "");
                               if (row.kode_supplier) {
                                 fetchPengadaanForSupplier(row.kode_supplier, list);
                               }
@@ -1141,8 +1143,8 @@ export default function HistoryKontrabonPage() {
 
       {showModal && (
         <div className="fixed inset-0 z-50 bg-black/40 p-4">
-          <div className="mx-auto flex h-full max-w-[1800px] items-start justify-center gap-4 overflow-auto">
-          <div className="w-full max-w-[1100px] rounded-xl bg-white shadow-xl">
+          <div className="mx-auto flex h-[calc(100vh-2rem)] max-w-[1800px] items-stretch justify-center gap-4 overflow-hidden">
+          <div className="flex h-full w-full max-w-[1100px] flex-col rounded-xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
               <div className="flex items-center gap-2 text-base font-semibold text-gray-800">
                 <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-[#0f756b] text-white">
@@ -1162,7 +1164,7 @@ export default function HistoryKontrabonPage() {
               </button>
             </div>
 
-            <div className="max-h-[75vh] overflow-y-auto px-5 py-4 space-y-5">
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
               <div className="space-y-2">
                 <label className="text-sm text-gray-600">Supplier</label>
                 <Select
@@ -1176,7 +1178,6 @@ export default function HistoryKontrabonPage() {
                       setRekeningList([]);
                       setPengadaanList([]);
                       setPengadaanRows([{ id: "row-1", kode_t_pengadaan: "", nominal: "" }]);
-                      setActivePreviewKode("");
                       setNominalFakturManual(false);
                       setNominalFakturInput("");
                       if (!next?.value) return;
@@ -1320,9 +1321,6 @@ export default function HistoryKontrabonPage() {
                                   )
                                 : prev.filter((item) => item.id !== row.id)
                             );
-                            setActivePreviewKode((prev) =>
-                              prev === row.kode_t_pengadaan ? "" : prev
-                            );
                             setNominalFakturManual(false);
                             setNominalFakturInput("");
                           }}
@@ -1368,7 +1366,6 @@ export default function HistoryKontrabonPage() {
                                       : item
                                   )
                                 );
-                                setActivePreviewKode(nextCode);
                                 if (nextCode) {
                                   fetchPengadaanPreview(nextCode);
                                 }
@@ -1690,7 +1687,6 @@ export default function HistoryKontrabonPage() {
                 onClick={() => {
                   setShowModal(false);
                   setEditingKontrabon(null);
-                  setActivePreviewKode("");
                   setPengadaanPreviewMap({});
                   setPengadaanPreviewLoading({});
                 }}
@@ -1707,7 +1703,6 @@ export default function HistoryKontrabonPage() {
                   setRekeningList([]);
                   setPengadaanRows([{ id: "row-1", kode_t_pengadaan: "", nominal: "" }]);
                   setPengadaanList([]);
-                  setActivePreviewKode("");
                   setPengadaanPreviewMap({});
                   setPengadaanPreviewLoading({});
                   setNominalFakturManual(false);
@@ -1842,127 +1837,126 @@ export default function HistoryKontrabonPage() {
               </button>
             </div>
           </div>
-          {activePreviewKode && (
-            <div className="w-full max-w-[760px] rounded-xl bg-white shadow-xl">
+          {selectedPreviewCodes.length > 0 && (
+            <div className="flex h-full w-full max-w-[760px] flex-col rounded-xl bg-white shadow-xl">
               <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
                 <div>
                   <div className="text-base font-semibold text-slate-900">Rasio Pengadaan</div>
-                  <div className="text-xs text-slate-500">{activePreviewKode}</div>
+                  <div className="text-xs text-slate-500">{selectedPreviewCodes.length} PEN dipilih</div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setActivePreviewKode("")}
-                  className="text-slate-400 hover:text-slate-600"
-                >
-                  X
-                </button>
               </div>
-              <div className="max-h-[75vh] overflow-auto px-5 py-4">
-                {pengadaanPreviewLoading[activePreviewKode] ? (
-                  <div className="text-sm text-slate-500">Memuat rasio 3 pengadaan terakhir...</div>
-                ) : (() => {
-                  const preview = pengadaanPreviewMap[activePreviewKode];
-                  const slotOrder = Array.isArray(preview?.slot_order) && preview.slot_order.length
-                    ? preview.slot_order
-                    : ["K3", "K2", "K1"];
-                  const previewRows = Array.isArray(preview?.rows) ? preview.rows : [];
-                  return (
-                    <div className="space-y-3">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-semibold text-slate-900">
-                            Rasio Pengadaan: {activePreviewKode}
+              <div className="flex-1 overflow-y-auto px-5 py-4">
+                <div className="space-y-5">
+                  {selectedPreviewCodes.map((previewCode) => {
+                    const preview = pengadaanPreviewMap[previewCode];
+                    const slotOrder = Array.isArray(preview?.slot_order) && preview.slot_order.length
+                      ? preview.slot_order
+                      : ["K3", "K2", "K1"];
+                    const previewRows = Array.isArray(preview?.rows) ? preview.rows : [];
+                    return (
+                      <section key={previewCode} className="space-y-3 rounded-xl border border-slate-200 p-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900">
+                              Rasio Pengadaan: {previewCode}
+                            </div>
+                            <div className="mt-1 text-xs text-slate-600">
+                              Supplier: {preview?.header?.nama_supplier || "-"} | Tanggal: {formatDate(preview?.header?.tgl)}
+                            </div>
                           </div>
-                          <div className="mt-1 text-xs text-slate-600">
-                            Supplier: {preview?.header?.nama_supplier || "-"} | Tanggal: {formatDate(preview?.header?.tgl)}
+                          <div className="text-right text-xs text-slate-600">
+                            <div>No Faktur: {preview?.header?.no_faktur_supplier || "-"}</div>
+                            <div className="font-semibold text-slate-900">
+                              Total: {formatCurrency(preview?.header?.total_akhir)}
+                            </div>
                           </div>
                         </div>
-                        <div className="text-right text-xs text-slate-600">
-                          <div>No Faktur: {preview?.header?.no_faktur_supplier || "-"}</div>
-                          <div className="font-semibold text-slate-900">
-                            Total: {formatCurrency(preview?.header?.total_akhir)}
+                        {pengadaanPreviewLoading[previewCode] ? (
+                          <div className="rounded-lg border border-slate-200 px-4 py-6 text-sm text-slate-500">
+                            Memuat rasio 3 pengadaan terakhir...
                           </div>
-                        </div>
-                      </div>
-                      <div className="overflow-x-auto rounded-lg border border-slate-200">
-                        <table className="min-w-[980px] w-full border-collapse text-[11px] leading-tight">
-                          <thead>
-                            <tr className="bg-slate-100 text-slate-900">
-                              <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-left">Nama Barang</th>
-                              <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-left">Supplier</th>
-                              {slotOrder.map((slot) => (
-                                <th key={slot} colSpan={5} className="border border-slate-300 px-2 py-2 text-center">
-                                  Pengadaan {slot}
-                                </th>
-                              ))}
-                              <th rowSpan={2} className="border border-slate-300 px-2 py-2 text-center">Gudang</th>
-                              <th rowSpan={2} className="border border-slate-300 px-2 py-2 text-center">Toko</th>
-                            </tr>
-                            <tr className="bg-slate-50 text-slate-700">
-                              {slotOrder.flatMap((slot) => [
-                                <th key={`${activePreviewKode}-${slot}-status`} className="border border-slate-300 px-2 py-2 text-center">S</th>,
-                                <th key={`${activePreviewKode}-${slot}-po`} className="border border-slate-300 px-2 py-2 text-center">PO</th>,
-                                <th key={`${activePreviewKode}-${slot}-pct`} className="border border-slate-300 px-2 py-2 text-center">%</th>,
-                                <th key={`${activePreviewKode}-${slot}-sisa`} className="border border-slate-300 px-2 py-2 text-center">Sisa</th>,
-                                <th key={`${activePreviewKode}-${slot}-umur`} className="border border-slate-300 px-2 py-2 text-center">Umur</th>,
-                              ])}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {previewRows.length === 0 ? (
-                              <tr>
-                                <td colSpan={19} className="border border-slate-300 px-4 py-6 text-center text-slate-500">
-                                  Tidak ada data rasio untuk pengadaan ini.
-                                </td>
-                              </tr>
-                            ) : (
-                              previewRows.map((previewRow) => (
-                                <tr key={`${activePreviewKode}-${previewRow.kodeBarangVariant}`} className="align-top">
-                                  <td className="border border-slate-300 px-3 py-2 text-slate-900">
-                                    <div className="font-semibold leading-snug">{previewRow.namaBarang}</div>
-                                    <div className="mt-1 break-all text-[10px] text-slate-500">{previewRow.kodeBarangVariant}</div>
-                                  </td>
-                                  <td className="border border-slate-300 px-3 py-2">{previewRow.namaSupplier || "-"}</td>
-                                  {slotOrder.flatMap((slotName) => {
-                                    const slot = previewRow.slots[slotOrder.indexOf(slotName)] || null;
-                                    const slotClass = previewSlotCellClass(slot);
-                                    return [
-                                      <td key={`${previewRow.kodeBarangVariant}-${slotName}-status`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "first")}`}>
-                                        {slot ? (
-                                          <span className={`inline-flex rounded-full px-1.5 py-1 text-[10px] font-semibold ${previewSlotBadgeClass(slot)}`}>
-                                            {slot.statusBayar === "Lunas" ? "L" : "B"}
-                                          </span>
-                                        ) : "-"}
-                                      </td>,
-                                      <td key={`${previewRow.kodeBarangVariant}-${slotName}-po`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "middle")}`}>
-                                        {slot ? formatNumber(slot.qty) : "-"}
-                                      </td>,
-                                      <td key={`${previewRow.kodeBarangVariant}-${slotName}-pct`} className={`border border-slate-300 px-1 py-2 text-center font-semibold ${slotClass} ${previewCurrentBorderClass(slot, "middle")}`}>
-                                        {slot?.persen !== null && slot?.persen !== undefined ? `${formatNumber(slot.persen)}%` : "-"}
-                                      </td>,
-                                      <td key={`${previewRow.kodeBarangVariant}-${slotName}-sisa`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "middle")}`}>
-                                        {slot ? formatNumber(slot.sisa) : "-"}
-                                      </td>,
-                                      <td key={`${previewRow.kodeBarangVariant}-${slotName}-umur`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "last")}`}>
-                                        {slot?.umurHari !== null && slot?.umurHari !== undefined ? `${slot.umurHari} hari` : "-"}
-                                      </td>,
-                                    ];
-                                  })}
-                                  <td className="border border-slate-300 px-2 py-2 text-center font-semibold text-slate-900">
-                                    {formatNumber(previewRow.stokGudang)}
-                                  </td>
-                                  <td className="border border-slate-300 px-2 py-2 text-center font-semibold text-slate-900">
-                                    {formatNumber(previewRow.stokToko)}
-                                  </td>
+                        ) : (
+                          <div className="overflow-x-auto rounded-lg border border-slate-200">
+                            <table className="min-w-[980px] w-full border-collapse text-[11px] leading-tight">
+                              <thead>
+                                <tr className="bg-slate-100 text-slate-900">
+                                  <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-left">Nama Barang</th>
+                                  <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-left">Supplier</th>
+                                  {slotOrder.map((slot) => (
+                                    <th key={slot} colSpan={5} className="border border-slate-300 px-2 py-2 text-center">
+                                      Pengadaan {slot}
+                                    </th>
+                                  ))}
+                                  <th rowSpan={2} className="border border-slate-300 px-2 py-2 text-center">Gudang</th>
+                                  <th rowSpan={2} className="border border-slate-300 px-2 py-2 text-center">Toko</th>
                                 </tr>
-                              ))
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  );
-                })()}
+                                <tr className="bg-slate-50 text-slate-700">
+                                  {slotOrder.flatMap((slot) => [
+                                    <th key={`${previewCode}-${slot}-status`} className="border border-slate-300 px-2 py-2 text-center">S</th>,
+                                    <th key={`${previewCode}-${slot}-po`} className="border border-slate-300 px-2 py-2 text-center">PO</th>,
+                                    <th key={`${previewCode}-${slot}-pct`} className="border border-slate-300 px-2 py-2 text-center">%</th>,
+                                    <th key={`${previewCode}-${slot}-sisa`} className="border border-slate-300 px-2 py-2 text-center">Sisa</th>,
+                                    <th key={`${previewCode}-${slot}-umur`} className="border border-slate-300 px-2 py-2 text-center">Umur</th>,
+                                  ])}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {previewRows.length === 0 ? (
+                                  <tr>
+                                    <td colSpan={19} className="border border-slate-300 px-4 py-6 text-center text-slate-500">
+                                      Tidak ada data rasio untuk pengadaan ini.
+                                    </td>
+                                  </tr>
+                                ) : (
+                                  previewRows.map((previewRow) => (
+                                    <tr key={`${previewCode}-${previewRow.kodeBarangVariant}`} className="align-top">
+                                      <td className="border border-slate-300 px-3 py-2 text-slate-900">
+                                        <div className="font-semibold leading-snug">{previewRow.namaBarang}</div>
+                                        <div className="mt-1 break-all text-[10px] text-slate-500">{previewRow.kodeBarangVariant}</div>
+                                      </td>
+                                      <td className="border border-slate-300 px-3 py-2">{previewRow.namaSupplier || "-"}</td>
+                                      {slotOrder.flatMap((slotName) => {
+                                        const slot = previewRow.slots[slotOrder.indexOf(slotName)] || null;
+                                        const slotClass = previewSlotCellClass(slot);
+                                        return [
+                                          <td key={`${previewRow.kodeBarangVariant}-${previewCode}-${slotName}-status`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "first")}`}>
+                                            {slot ? (
+                                              <span className={`inline-flex rounded-full px-1.5 py-1 text-[10px] font-semibold ${previewSlotBadgeClass(slot)}`}>
+                                                {slot.statusBayar === "Lunas" ? "L" : "B"}
+                                              </span>
+                                            ) : "-"}
+                                          </td>,
+                                          <td key={`${previewRow.kodeBarangVariant}-${previewCode}-${slotName}-po`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "middle")}`}>
+                                            {slot ? formatNumber(slot.qty) : "-"}
+                                          </td>,
+                                          <td key={`${previewRow.kodeBarangVariant}-${previewCode}-${slotName}-pct`} className={`border border-slate-300 px-1 py-2 text-center font-semibold ${slotClass} ${previewCurrentBorderClass(slot, "middle")}`}>
+                                            {slot?.persen !== null && slot?.persen !== undefined ? `${formatNumber(slot.persen)}%` : "-"}
+                                          </td>,
+                                          <td key={`${previewRow.kodeBarangVariant}-${previewCode}-${slotName}-sisa`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "middle")}`}>
+                                            {slot ? formatNumber(slot.sisa) : "-"}
+                                          </td>,
+                                          <td key={`${previewRow.kodeBarangVariant}-${previewCode}-${slotName}-umur`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "last")}`}>
+                                            {slot?.umurHari !== null && slot?.umurHari !== undefined ? `${slot.umurHari} hari` : "-"}
+                                          </td>,
+                                        ];
+                                      })}
+                                      <td className="border border-slate-300 px-2 py-2 text-center font-semibold text-slate-900">
+                                        {formatNumber(previewRow.stokGudang)}
+                                      </td>
+                                      <td className="border border-slate-300 px-2 py-2 text-center font-semibold text-slate-900">
+                                        {formatNumber(previewRow.stokToko)}
+                                      </td>
+                                    </tr>
+                                  ))
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </section>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           )}
