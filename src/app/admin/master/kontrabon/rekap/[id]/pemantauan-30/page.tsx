@@ -105,12 +105,8 @@ const formatNumber = (value?: number | null) => {
 
 const slotCellClass = (slot?: PemantauanSlot | null) => {
   if (!slot || slot.persen === null) return "bg-slate-50 text-slate-500";
-  if (slot.persen <= 30) {
-    return slot.isCurrent
-      ? "bg-amber-200 text-amber-950"
-      : "bg-emerald-200 text-emerald-950";
-  }
-  return slot.isCurrent ? "bg-rose-200 text-rose-950" : "bg-slate-100 text-slate-800";
+  if (slot.persen <= 30) return "bg-emerald-200 text-emerald-950";
+  return "bg-rose-200 text-rose-950";
 };
 
 const statusBayarClass = (value?: string | null) => {
@@ -120,14 +116,8 @@ const statusBayarClass = (value?: string | null) => {
 
 const slotStatusBadgeClass = (slot?: PemantauanSlot | null) => {
   if (!slot || slot.persen === null) return "border border-slate-200 bg-white/80 text-slate-500";
-  if (slot.persen <= 30) {
-    return slot.isCurrent
-      ? "border border-amber-300 bg-amber-100 text-amber-900"
-      : "border border-emerald-300 bg-emerald-100 text-emerald-900";
-  }
-  return slot.isCurrent
-    ? "border border-rose-300 bg-rose-100 text-rose-900"
-    : "border border-slate-300 bg-slate-200 text-slate-800";
+  if (slot.persen <= 30) return "border border-emerald-300 bg-emerald-100 text-emerald-900";
+  return "border border-rose-300 bg-rose-100 text-rose-900";
 };
 
 const slotGroupBorderClass = (slot: string) => {
