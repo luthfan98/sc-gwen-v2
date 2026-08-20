@@ -118,6 +118,18 @@ const statusBayarClass = (value?: string | null) => {
   return normalized === "lunas" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800";
 };
 
+const slotStatusBadgeClass = (slot?: PemantauanSlot | null) => {
+  if (!slot || slot.persen === null) return "border border-slate-200 bg-white/80 text-slate-500";
+  if (slot.persen <= 30) {
+    return slot.isCurrent
+      ? "border border-amber-300 bg-amber-100 text-amber-900"
+      : "border border-emerald-300 bg-emerald-100 text-emerald-900";
+  }
+  return slot.isCurrent
+    ? "border border-rose-300 bg-rose-100 text-rose-900"
+    : "border border-slate-300 bg-slate-200 text-slate-800";
+};
+
 const slotGroupBorderClass = (slot: string) => {
   const normalized = String(slot || "").trim().toUpperCase();
   return normalized === "K1" ? "border-r-2 border-r-slate-500" : "border-r-2 border-r-slate-400";
@@ -431,7 +443,7 @@ export default function Pemantauan30Page() {
                                   <button
                                     type="button"
                                     onClick={() => openPengadaanDetail(slot)}
-                                    className={`inline-flex max-w-full items-center justify-center rounded-full px-1.5 py-1 text-[10px] font-semibold transition hover:brightness-95 ${statusBayarClass(slot.statusBayar)}`}
+                                    className={`inline-flex max-w-full items-center justify-center rounded-full px-1.5 py-1 text-[10px] font-semibold transition hover:brightness-95 ${slotStatusBadgeClass(slot)}`}
                                   >
                                     {slot.statusBayar === "Lunas" ? "L" : "B"}
                                   </button>
