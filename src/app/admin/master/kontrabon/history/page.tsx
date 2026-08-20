@@ -41,6 +41,39 @@ const showValidationAlert = (text: string) =>
     confirmButtonText: "OK",
   });
 
+type PengadaanPreviewSlot = {
+  slot: string;
+  kodeTPengadaan: string;
+  statusBayar: string;
+  qty: number;
+  sisa: number;
+  persen: number | null;
+  umurHari: number | null;
+  isCurrent: boolean;
+} | null;
+
+type PengadaanPreviewRow = {
+  kodeBarangVariant: string;
+  namaBarang: string;
+  namaSupplier: string | null;
+  stokGudang: number;
+  stokToko: number;
+  slots: PengadaanPreviewSlot[];
+};
+
+type PengadaanPreviewPayload = {
+  header?: {
+    kode_t_pengadaan?: string;
+    nama_supplier?: string | null;
+    total_akhir?: number | null;
+    no_faktur_supplier?: string | null;
+    tgl?: string | null;
+  } | null;
+  limit?: number;
+  slot_order?: string[];
+  rows?: PengadaanPreviewRow[];
+};
+
 export default function HistoryKontrabonPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingKontrabon, setEditingKontrabon] = useState<any | null>(null);
@@ -81,6 +114,8 @@ export default function HistoryKontrabonPage() {
   const [pengadaanRows, setPengadaanRows] = useState<
     { id: string; kode_t_pengadaan: string; nominal: string }[]
   >([{ id: "row-1", kode_t_pengadaan: "", nominal: "" }]);
+  const [pengadaanPreviewMap, setPengadaanPreviewMap] = useState<Record<string, PengadaanPreviewPayload>>({});
+  const [pengadaanPreviewLoading, setPengadaanPreviewLoading] = useState<Record<string, boolean>>({});
   const [nominalFakturInput, setNominalFakturInput] = useState("");
   const [nominalFakturManual, setNominalFakturManual] = useState(false);
   const [nomorKontrabon, setNomorKontrabon] = useState("");
@@ -336,6 +371,23 @@ export default function HistoryKontrabonPage() {
     }
   };
 
+  const fetchPengadaanPreview = useCallback(async (kodePengadaan: string) => {
+    const kode = String(kodePengadaan || "").trim();
+    if (!kode) return;
+    setPengadaanPreviewLoading((prev) => ({ ...prev, [kode]: true }));
+    try {
+      const res = await fetch(`${API_BASE}/kontrabon/pengadaan/${encodeURIComponent(kode)}/rasio-preview?limit=3`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as PengadaanPreviewPayload;
+      setPengadaanPreviewMap((prev) => ({ ...prev, [kode]: data || {} }));
+    } catch (err) {
+      console.error("Failed fetch pengadaan preview", err);
+      setPengadaanPreviewMap((prev) => ({ ...prev, [kode]: { rows: [], slot_order: ["K3", "K2", "K1"] } }));
+    } finally {
+      setPengadaanPreviewLoading((prev) => ({ ...prev, [kode]: false }));
+    }
+  }, [API_BASE]);
+
   const toDateInput = (value?: string | null) => {
     if (!value) return "";
     const d = new Date(value);
@@ -351,6 +403,38 @@ export default function HistoryKontrabonPage() {
       currency: "IDR",
       minimumFractionDigits: 0,
     }).format(safe);
+  };
+
+  const formatNumber = (value?: number | null) => {
+    const safe = Number(value ?? 0);
+    if (!Number.isFinite(safe)) return "0";
+    return new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(safe);
+  };
+
+  const formatDate = (value?: string | null) => {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
+  };
+
+  const previewSlotCellClass = (slot?: PengadaanPreviewSlot) => {
+    if (!slot || slot.persen === null) return "bg-slate-50 text-slate-500";
+    if (slot.persen <= 30) return "bg-emerald-200 text-emerald-950";
+    return "bg-rose-200 text-rose-950";
+  };
+
+  const previewSlotBadgeClass = (slot?: PengadaanPreviewSlot) => {
+    if (!slot || slot.persen === null) return "border border-slate-200 bg-white/80 text-slate-500";
+    if (slot.persen <= 30) return "border border-emerald-300 bg-emerald-100 text-emerald-900";
+    return "border border-rose-300 bg-rose-100 text-rose-900";
+  };
+
+  const previewCurrentBorderClass = (slot: PengadaanPreviewSlot, position: "first" | "middle" | "last") => {
+    if (!slot?.isCurrent) return "";
+    if (position === "first") return "border-l-2 border-y-2 border-l-sky-700 border-y-sky-700";
+    if (position === "last") return "border-r-2 border-y-2 border-r-sky-700 border-y-sky-700";
+    return "border-y-2 border-y-sky-700";
   };
 
   const handleDisableKontrabon = async (no_kontrabon: string) => {
@@ -663,6 +747,19 @@ export default function HistoryKontrabonPage() {
   useEffect(() => {
     fetchKontrabon();
   }, [fetchKontrabon]);
+
+  useEffect(() => {
+    if (!showModal) return;
+    const selectedCodes = [...new Set(
+      pengadaanRows
+        .map((row) => String(row.kode_t_pengadaan || "").trim())
+        .filter(Boolean)
+    )];
+    selectedCodes.forEach((code) => {
+      if (pengadaanPreviewMap[code] || pengadaanPreviewLoading[code]) return;
+      fetchPengadaanPreview(code);
+    });
+  }, [showModal, pengadaanRows, pengadaanPreviewMap, pengadaanPreviewLoading, fetchPengadaanPreview]);
 
   return (
     <div className="min-h-screen bg-slate-100/60 p-4 md:p-6 space-y-6 overflow-x-hidden">
@@ -1041,7 +1138,7 @@ export default function HistoryKontrabonPage() {
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl">
+          <div className="w-full max-w-[96vw] xl:max-w-[1500px] rounded-xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
               <div className="flex items-center gap-2 text-base font-semibold text-gray-800">
                 <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-[#0f756b] text-white">
@@ -1079,6 +1176,8 @@ export default function HistoryKontrabonPage() {
                       setNominalFakturInput("");
                       if (!next?.value) return;
                       fetchRekeningForSupplier(next.value);
+                      setPengadaanPreviewMap({});
+                      setPengadaanPreviewLoading({});
                       fetchPengadaanForSupplier(next.value);
                     }}
                     placeholder={supplierLoading ? "Memuat supplier..." : "Pilih Supplier ..."}
@@ -1201,8 +1300,9 @@ export default function HistoryKontrabonPage() {
                 <label className="text-sm text-gray-600">Nomor Pengadaan</label>
                 <div className="mt-2 grid gap-3">
                   {pengadaanRows.map((row) => (
-                    <div key={row.id} className="grid gap-2 md:grid-cols-[auto,1.6fr,1fr]">
-                      <div className="flex items-center gap-2">
+                    <div key={row.id} className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                      <div className="grid gap-2 md:grid-cols-[auto,1.6fr,1fr]">
+                        <div className="flex items-center gap-2">
                         <button
                           type="button"
                           onClick={() => {
@@ -1259,6 +1359,9 @@ export default function HistoryKontrabonPage() {
                                       : item
                                   )
                                 );
+                                if (option?.value) {
+                                  fetchPengadaanPreview(option.value);
+                                }
                                 setNominalFakturManual(false);
                                 setNominalFakturInput("");
                               }}
@@ -1315,6 +1418,116 @@ export default function HistoryKontrabonPage() {
                           })()}
                         </div>
                       </div>
+                      </div>
+                      {row.kode_t_pengadaan && (
+                        <div className="rounded-xl border border-slate-200 bg-white p-3">
+                          {pengadaanPreviewLoading[row.kode_t_pengadaan] ? (
+                            <div className="text-sm text-slate-500">Memuat rasio 3 pengadaan terakhir...</div>
+                          ) : (() => {
+                            const preview = pengadaanPreviewMap[row.kode_t_pengadaan];
+                            const slotOrder = Array.isArray(preview?.slot_order) && preview.slot_order.length
+                              ? preview.slot_order
+                              : ["K3", "K2", "K1"];
+                            const previewRows = Array.isArray(preview?.rows) ? preview.rows : [];
+                            return (
+                              <div className="space-y-3">
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div>
+                                    <div className="text-sm font-semibold text-slate-900">
+                                      Rasio Pengadaan: {row.kode_t_pengadaan}
+                                    </div>
+                                    <div className="mt-1 text-xs text-slate-600">
+                                      Supplier: {preview?.header?.nama_supplier || "-"} | Tanggal: {formatDate(preview?.header?.tgl)}
+                                    </div>
+                                  </div>
+                                  <div className="text-right text-xs text-slate-600">
+                                    <div>No Faktur: {preview?.header?.no_faktur_supplier || "-"}</div>
+                                    <div className="font-semibold text-slate-900">
+                                      Total: {formatCurrency(preview?.header?.total_akhir)}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="overflow-x-auto rounded-lg border border-slate-200">
+                                  <table className="min-w-[980px] w-full border-collapse text-[11px] leading-tight">
+                                    <thead>
+                                      <tr className="bg-slate-100 text-slate-900">
+                                        <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-left">Nama Barang</th>
+                                        <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-left">Supplier</th>
+                                        {slotOrder.map((slot) => (
+                                          <th key={slot} colSpan={5} className="border border-slate-300 px-2 py-2 text-center">
+                                            Pengadaan {slot}
+                                          </th>
+                                        ))}
+                                        <th rowSpan={2} className="border border-slate-300 px-2 py-2 text-center">Gudang</th>
+                                        <th rowSpan={2} className="border border-slate-300 px-2 py-2 text-center">Toko</th>
+                                      </tr>
+                                      <tr className="bg-slate-50 text-slate-700">
+                                        {slotOrder.flatMap((slot) => [
+                                          <th key={`${row.id}-${slot}-status`} className="border border-slate-300 px-2 py-2 text-center">S</th>,
+                                          <th key={`${row.id}-${slot}-po`} className="border border-slate-300 px-2 py-2 text-center">PO</th>,
+                                          <th key={`${row.id}-${slot}-pct`} className="border border-slate-300 px-2 py-2 text-center">%</th>,
+                                          <th key={`${row.id}-${slot}-sisa`} className="border border-slate-300 px-2 py-2 text-center">Sisa</th>,
+                                          <th key={`${row.id}-${slot}-umur`} className="border border-slate-300 px-2 py-2 text-center">Umur</th>,
+                                        ])}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {previewRows.length === 0 ? (
+                                        <tr>
+                                          <td colSpan={19} className="border border-slate-300 px-4 py-6 text-center text-slate-500">
+                                            Tidak ada data rasio untuk pengadaan ini.
+                                          </td>
+                                        </tr>
+                                      ) : (
+                                        previewRows.map((previewRow) => (
+                                          <tr key={`${row.id}-${previewRow.kodeBarangVariant}`} className="align-top">
+                                            <td className="border border-slate-300 px-3 py-2 text-slate-900">
+                                              <div className="font-semibold leading-snug">{previewRow.namaBarang}</div>
+                                              <div className="mt-1 break-all text-[10px] text-slate-500">{previewRow.kodeBarangVariant}</div>
+                                            </td>
+                                            <td className="border border-slate-300 px-3 py-2">{previewRow.namaSupplier || "-"}</td>
+                                            {slotOrder.flatMap((slotName) => {
+                                              const slot = previewRow.slots[slotOrder.indexOf(slotName)] || null;
+                                              const slotClass = previewSlotCellClass(slot);
+                                              return [
+                                                <td key={`${previewRow.kodeBarangVariant}-${slotName}-status`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "first")}`}>
+                                                  {slot ? (
+                                                    <span className={`inline-flex rounded-full px-1.5 py-1 text-[10px] font-semibold ${previewSlotBadgeClass(slot)}`}>
+                                                      {slot.statusBayar === "Lunas" ? "L" : "B"}
+                                                    </span>
+                                                  ) : "-"}
+                                                </td>,
+                                                <td key={`${previewRow.kodeBarangVariant}-${slotName}-po`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "middle")}`}>
+                                                  {slot ? formatNumber(slot.qty) : "-"}
+                                                </td>,
+                                                <td key={`${previewRow.kodeBarangVariant}-${slotName}-pct`} className={`border border-slate-300 px-1 py-2 text-center font-semibold ${slotClass} ${previewCurrentBorderClass(slot, "middle")}`}>
+                                                  {slot?.persen !== null && slot?.persen !== undefined ? `${formatNumber(slot.persen)}%` : "-"}
+                                                </td>,
+                                                <td key={`${previewRow.kodeBarangVariant}-${slotName}-sisa`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "middle")}`}>
+                                                  {slot ? formatNumber(slot.sisa) : "-"}
+                                                </td>,
+                                                <td key={`${previewRow.kodeBarangVariant}-${slotName}-umur`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "last")}`}>
+                                                  {slot?.umurHari !== null && slot?.umurHari !== undefined ? `${slot.umurHari} hari` : "-"}
+                                                </td>,
+                                              ];
+                                            })}
+                                            <td className="border border-slate-300 px-2 py-2 text-center font-semibold text-slate-900">
+                                              {formatNumber(previewRow.stokGudang)}
+                                            </td>
+                                            <td className="border border-slate-300 px-2 py-2 text-center font-semibold text-slate-900">
+                                              {formatNumber(previewRow.stokToko)}
+                                            </td>
+                                          </tr>
+                                        ))
+                                      )}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      )}
                     </div>
                   ))}
                   <button
@@ -1576,6 +1789,8 @@ export default function HistoryKontrabonPage() {
                 onClick={() => {
                   setShowModal(false);
                   setEditingKontrabon(null);
+                  setPengadaanPreviewMap({});
+                  setPengadaanPreviewLoading({});
                 }}
                 className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600"
               >
@@ -1590,6 +1805,8 @@ export default function HistoryKontrabonPage() {
                   setRekeningList([]);
                   setPengadaanRows([{ id: "row-1", kode_t_pengadaan: "", nominal: "" }]);
                   setPengadaanList([]);
+                  setPengadaanPreviewMap({});
+                  setPengadaanPreviewLoading({});
                   setNominalFakturManual(false);
                   setNominalFakturInput("");
                   setBiayaLainRows([]);

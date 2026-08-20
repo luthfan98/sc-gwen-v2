@@ -1127,6 +1127,261 @@ export default async function kontrabonRoutes(fastify) {
     }
   });
 
+  fastify.get("/pengadaan/:kode/rasio-preview", async (request, reply) => {
+    const kodePengadaan = String(request.params?.kode || "").trim();
+    const limit = Math.min(Math.max(Number(request.query?.limit || 3) || 3, 1), 5);
+    if (!kodePengadaan) return reply.code(400).send({ message: "kode pengadaan wajib diisi" });
+
+    try {
+      const detailReq = pool.request();
+      detailReq.input("kode_t_pengadaan", sql.VarChar(255), kodePengadaan);
+      const detailRes = await detailReq.query(`
+        SELECT
+          tp.kode_t_pengadaan,
+          tp.tgl,
+          tp.kode_supplier,
+          ms.nama AS nama_supplier,
+          tp.total_akhir,
+          tp.no_faktur_supplier,
+          dp.kode_d_pengadaan,
+          dp.kode_barang_variant,
+          dp.kode_barang,
+          dp.nama_barang,
+          dp.qty,
+          dp.satuan
+        FROM dbo.GWEN_t_pengadaan tp
+        INNER JOIN dbo.GWEN_d_pengadaan dp
+          ON dp.kode_t_pengadaan COLLATE DATABASE_DEFAULT = tp.kode_t_pengadaan COLLATE DATABASE_DEFAULT
+        LEFT JOIN dbo.m_supplier ms
+          ON ms.kode_supplier COLLATE DATABASE_DEFAULT = tp.kode_supplier COLLATE DATABASE_DEFAULT
+        WHERE tp.kode_t_pengadaan COLLATE DATABASE_DEFAULT = @kode_t_pengadaan COLLATE DATABASE_DEFAULT
+          AND ISNULL(dp.is_active, 1) = 1
+        ORDER BY dp.kode_d_pengadaan ASC;
+      `);
+      const pengadaanDetails = detailRes.recordset || [];
+      if (!pengadaanDetails.length) {
+        return reply.code(404).send({ message: "Pengadaan tidak ditemukan" });
+      }
+
+      const variantCodes = [...new Set(
+        pengadaanDetails
+          .map((row) => String(row.kode_barang_variant || "").trim())
+          .filter(Boolean)
+      )];
+
+      const stockMap = new Map();
+      if (variantCodes.length) {
+        const stockReq = pool.request();
+        variantCodes.forEach((code, idx) => {
+          stockReq.input(`variant_${idx}`, sql.VarChar(255), code);
+        });
+        const stockParams = variantCodes.map((_, idx) => `@variant_${idx}`).join(", ");
+        const stockRes = await stockReq.query(`
+          WITH gudang_stock AS (
+            SELECT
+              kode_barang_variant,
+              SUM(ISNULL(stok, 0)) AS stok_gudang
+            FROM dbo.GWEN_mn_barang_gudang_variant
+            WHERE kode_barang_variant IN (${stockParams})
+              AND ISNULL(status, 1) = 1
+            GROUP BY kode_barang_variant
+          ),
+          toko_stock AS (
+            SELECT
+              kode_barang_variant,
+              SUM(
+                CASE
+                  WHEN stok_available IS NOT NULL THEN stok_available
+                  ELSE ISNULL(qty_baik, 0)
+                END
+              ) AS stok_toko
+            FROM dbo.GWEN_mn_barang_toko_variant
+            WHERE kode_barang_variant IN (${stockParams})
+              AND ISNULL(status, 1) = 1
+            GROUP BY kode_barang_variant
+          )
+          SELECT
+            variants.kode_barang_variant,
+            ISNULL(gudang_stock.stok_gudang, 0) AS stok_gudang,
+            ISNULL(toko_stock.stok_toko, 0) AS stok_toko,
+            ISNULL(gudang_stock.stok_gudang, 0) + ISNULL(toko_stock.stok_toko, 0) AS stok_total
+          FROM (
+            SELECT DISTINCT kode_barang_variant
+            FROM (
+              SELECT kode_barang_variant
+              FROM dbo.GWEN_mn_barang_gudang_variant
+              WHERE kode_barang_variant IN (${stockParams})
+              UNION
+              SELECT kode_barang_variant
+              FROM dbo.GWEN_mn_barang_toko_variant
+              WHERE kode_barang_variant IN (${stockParams})
+            ) variant_union
+          ) variants
+          LEFT JOIN gudang_stock
+            ON gudang_stock.kode_barang_variant COLLATE DATABASE_DEFAULT = variants.kode_barang_variant COLLATE DATABASE_DEFAULT
+          LEFT JOIN toko_stock
+            ON toko_stock.kode_barang_variant COLLATE DATABASE_DEFAULT = variants.kode_barang_variant COLLATE DATABASE_DEFAULT;
+        `);
+        (stockRes.recordset || []).forEach((row) => {
+          stockMap.set(String(row.kode_barang_variant), {
+            gudang: Number(row.stok_gudang ?? 0),
+            toko: Number(row.stok_toko ?? 0),
+            total: Number(row.stok_total ?? 0),
+          });
+        });
+      }
+
+      const historyMap = new Map();
+      if (variantCodes.length) {
+        const historyReq = pool.request();
+        variantCodes.forEach((code, idx) => {
+          historyReq.input(`history_variant_${idx}`, sql.VarChar(255), code);
+        });
+        const historyParams = variantCodes.map((_, idx) => `@history_variant_${idx}`).join(", ");
+        historyReq.input("limit", sql.Int, limit);
+        const historyRes = await historyReq.query(`
+          WITH pembayaran AS (
+            SELECT
+              kode_t_pengadaan,
+              SUM(ISNULL(total_tagihan, 0)) AS total_tagihan,
+              SUM(ISNULL(total_dibayar, 0)) AS total_dibayar
+            FROM dbo.GWEN_t_tagihan
+            WHERE ISNULL(is_void, 0) = 0
+              AND ISNULL(status, 1) = 1
+            GROUP BY kode_t_pengadaan
+          ),
+          ranked AS (
+            SELECT
+              dp.kode_barang_variant,
+              tp.kode_t_pengadaan,
+              tp.tgl,
+              CASE
+                WHEN ISNULL(pay.total_tagihan, 0) > 0
+                  AND ISNULL(pay.total_dibayar, 0) >= ISNULL(pay.total_tagihan, 0)
+                  THEN 'Lunas'
+                ELSE 'Belum Lunas'
+              END AS status_bayar,
+              dp.qty,
+              dp.satuan,
+              b.satuan_1,
+              b.satuan_2,
+              b.rasio_1_ke_2,
+              ROW_NUMBER() OVER (
+                PARTITION BY dp.kode_barang_variant
+                ORDER BY tp.tgl DESC, tp.kode_t_pengadaan DESC, dp.kode_d_pengadaan DESC
+              ) AS rn
+            FROM dbo.GWEN_d_pengadaan dp
+            INNER JOIN dbo.GWEN_t_pengadaan tp
+              ON tp.kode_t_pengadaan COLLATE DATABASE_DEFAULT = dp.kode_t_pengadaan COLLATE DATABASE_DEFAULT
+            LEFT JOIN dbo.m_barang_varian v
+              ON v.kode_barang_variant COLLATE DATABASE_DEFAULT = dp.kode_barang_variant COLLATE DATABASE_DEFAULT
+            LEFT JOIN dbo.m_barang b
+              ON b.id_barang = v.id_barang
+            LEFT JOIN pembayaran pay
+              ON pay.kode_t_pengadaan COLLATE DATABASE_DEFAULT = tp.kode_t_pengadaan COLLATE DATABASE_DEFAULT
+            WHERE dp.kode_barang_variant IN (${historyParams})
+              AND ISNULL(dp.is_active, 1) = 1
+          )
+          SELECT
+            kode_barang_variant,
+            kode_t_pengadaan,
+            tgl,
+            status_bayar,
+            qty,
+            satuan,
+            satuan_1,
+            satuan_2,
+            rasio_1_ke_2,
+            rn
+          FROM ranked
+          WHERE rn <= @limit
+          ORDER BY kode_barang_variant ASC, rn ASC;
+        `);
+        (historyRes.recordset || []).forEach((row) => {
+          const key = String(row.kode_barang_variant || "").trim();
+          if (!key) return;
+          if (!historyMap.has(key)) historyMap.set(key, []);
+          historyMap.get(key).push(row);
+        });
+      }
+
+      const today = new Date();
+      const slotOrder = Array.from({ length: limit }, (_, index) => `K${limit - index}`);
+      const rows = pengadaanDetails.map((detail) => {
+        const variantCode = String(detail.kode_barang_variant || "").trim();
+        const stockEntry = stockMap.get(variantCode) || { gudang: 0, toko: 0, total: 0 };
+        const currentStockBase = Number(stockEntry.total ?? 0);
+        const histories = (historyMap.get(variantCode) || []).map((row, index) => ({
+          slot: `K${limit - index}`,
+          kodeTPengadaan: String(row.kode_t_pengadaan || "").trim(),
+          statusBayar: String(row.status_bayar || "Belum Lunas"),
+          qty: Number(row.qty ?? 0),
+          qtyBase: toBaseQty({
+            qty: row.qty,
+            unit: row.satuan,
+            satuan2: row.satuan_2,
+            ratio12: row.rasio_1_ke_2,
+          }),
+          satuan: row.satuan,
+          satuan2: row.satuan_2,
+          ratio12: Number(row.rasio_1_ke_2 ?? 0),
+          tgl: row.tgl,
+        }));
+
+        let stockCursorBase = currentStockBase;
+        const slotMap = new Map();
+        histories.forEach((row) => {
+          const sisaBase = Math.max(Math.min(stockCursorBase, row.qtyBase), 0);
+          stockCursorBase = Math.max(stockCursorBase - row.qtyBase, 0);
+          const sisaDisplay = fromBaseQty({
+            qtyBase: sisaBase,
+            unit: row.satuan,
+            satuan2: row.satuan2,
+            ratio12: row.ratio12,
+          });
+          slotMap.set(row.slot, {
+            slot: row.slot,
+            kodeTPengadaan: row.kodeTPengadaan,
+            statusBayar: row.statusBayar,
+            qty: row.qty,
+            sisa: sisaDisplay,
+            persen: row.qtyBase > 0 ? Math.round((sisaBase / row.qtyBase) * 10000) / 100 : null,
+            umurHari: row.tgl
+              ? Math.floor((today.getTime() - new Date(row.tgl).getTime()) / (1000 * 60 * 60 * 24))
+              : null,
+            isCurrent: row.kodeTPengadaan === kodePengadaan,
+          });
+        });
+
+        return {
+          kodeBarangVariant: variantCode,
+          namaBarang: detail.nama_barang,
+          namaSupplier: detail.nama_supplier,
+          stokGudang: Number(stockEntry.gudang ?? 0),
+          stokToko: Number(stockEntry.toko ?? 0),
+          slots: slotOrder.map((slot) => slotMap.get(slot) || null),
+        };
+      });
+
+      const header = pengadaanDetails[0];
+      return reply.send({
+        header: {
+          kode_t_pengadaan: kodePengadaan,
+          nama_supplier: header?.nama_supplier || null,
+          total_akhir: Number(header?.total_akhir ?? 0),
+          no_faktur_supplier: header?.no_faktur_supplier || null,
+          tgl: header?.tgl || null,
+        },
+        limit,
+        slot_order: slotOrder,
+        rows,
+      });
+    } catch (err) {
+      fastify.log.error({ err }, "Failed fetch pengadaan rasio preview");
+      return reply.code(500).send({ message: "Gagal memuat preview rasio pengadaan" });
+    }
+  });
+
   fastify.post("/rekap/:id/items", async (request, reply) => {
     const { id } = request.params || {};
     const { no_kontrabon_list } = request.body || {};
