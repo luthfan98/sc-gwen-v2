@@ -690,11 +690,15 @@ export default async function pengadaanRoutes(fastify) {
               WHEN ISNULL(tag.total_tagihan, 0) > 0
                 AND ISNULL(tag.total_dibayar, 0) >= ISNULL(tag.total_tagihan, 0)
                 THEN 1
+              WHEN ISNULL(paid_kontrabon.in_paid_kontrabon, 0) = 1
+                THEN 1
               ELSE 0
             END AS is_lunas,
             CASE
               WHEN ISNULL(tag.total_tagihan, 0) > 0
                 AND ISNULL(tag.total_dibayar, 0) >= ISNULL(tag.total_tagihan, 0)
+                THEN 'PAID'
+              WHEN ISNULL(paid_kontrabon.in_paid_kontrabon, 0) = 1
                 THEN 'PAID'
               ELSE 'NOT PAID'
             END AS status_paid
@@ -714,6 +718,20 @@ export default async function pengadaanRoutes(fastify) {
             GROUP BY kode_t_pengadaan
           ) tag
             ON tag.kode_t_pengadaan = t.kode_t_pengadaan
+          OUTER APPLY (
+            SELECT TOP 1 1 AS in_paid_kontrabon
+            FROM dbo.GWEN_t_kontrabon k
+            WHERE ISNULL(k.status, 1) = 1
+              AND LTRIM(RTRIM(ISNULL(k.status_paid, ''))) = 'Paid'
+              AND (
+                LTRIM(RTRIM(ISNULL(k.kode_t_pengadaan, ''))) = LTRIM(RTRIM(t.kode_t_pengadaan))
+                OR ISNULL(k.kode_t_pengadaan, '') LIKE '%"' + LTRIM(RTRIM(t.kode_t_pengadaan)) + '"%'
+                OR (
+                  ',' + REPLACE(REPLACE(REPLACE(ISNULL(k.kode_t_pengadaan, ''), '[', ''), ']', ''), '"', '') + ','
+                ) LIKE '%,' + LTRIM(RTRIM(t.kode_t_pengadaan)) + ',%'
+              )
+            ORDER BY ISNULL(k.tgl_bayar, k.created_at) DESC, k.id DESC
+          ) paid_kontrabon
           WHERE RTRIM(LTRIM(t.kode_t_pengadaan)) = RTRIM(LTRIM(@kode_t_pengadaan))
             ${includeInactive ? "" : "AND ISNULL(t.status, 1) = 1"};
         `
@@ -804,6 +822,7 @@ export default async function pengadaanRoutes(fastify) {
                 END
               )
               THEN 1
+            WHEN ISNULL(paid_kontrabon.in_paid_kontrabon, 0) = 1 THEN 1
             ELSE 0
           END AS is_lunas,
           ISNULL(pr.qty_dikirim, 0) AS qty_dikirim,
@@ -826,6 +845,20 @@ export default async function pengadaanRoutes(fastify) {
           GROUP BY kode_t_pengadaan
         ) tag
           ON tag.kode_t_pengadaan = t.kode_t_pengadaan
+        OUTER APPLY (
+          SELECT TOP 1 1 AS in_paid_kontrabon
+          FROM dbo.GWEN_t_kontrabon k
+          WHERE ISNULL(k.status, 1) = 1
+            AND LTRIM(RTRIM(ISNULL(k.status_paid, ''))) = 'Paid'
+            AND (
+              LTRIM(RTRIM(ISNULL(k.kode_t_pengadaan, ''))) = LTRIM(RTRIM(t.kode_t_pengadaan))
+              OR ISNULL(k.kode_t_pengadaan, '') LIKE '%"' + LTRIM(RTRIM(t.kode_t_pengadaan)) + '"%'
+              OR (
+                ',' + REPLACE(REPLACE(REPLACE(ISNULL(k.kode_t_pengadaan, ''), '[', ''), ']', ''), '"', '') + ','
+              ) LIKE '%,' + LTRIM(RTRIM(t.kode_t_pengadaan)) + ',%'
+            )
+          ORDER BY ISNULL(k.tgl_bayar, k.created_at) DESC, k.id DESC
+        ) paid_kontrabon
         LEFT JOIN (
           SELECT
             tp.kode_t_pengadaan,
