@@ -1145,7 +1145,6 @@ export default async function kontrabonRoutes(fastify) {
           tp.no_faktur_supplier,
           dp.kode_d_pengadaan,
           dp.kode_barang_variant,
-          dp.kode_barang,
           dp.nama_barang,
           dp.qty,
           dp.satuan
