@@ -917,13 +917,48 @@ export default async function kontrabonRoutes(fastify) {
         });
         const stockParams = variantCodes.map((_, idx) => `@variant_${idx}`).join(", ");
         const stockRes = await stockReq.query(`
+          WITH gudang_stock AS (
+            SELECT
+              kode_barang_variant,
+              SUM(ISNULL(stok, 0)) AS stok_gudang
+            FROM dbo.GWEN_mn_barang_gudang_variant
+            WHERE kode_barang_variant IN (${stockParams})
+              AND ISNULL(status, 1) = 1
+            GROUP BY kode_barang_variant
+          ),
+          toko_stock AS (
+            SELECT
+              kode_barang_variant,
+              SUM(
+                CASE
+                  WHEN stok_available IS NOT NULL THEN stok_available
+                  ELSE ISNULL(qty_baik, 0)
+                END
+              ) AS stok_toko
+            FROM dbo.GWEN_mn_barang_toko_variant
+            WHERE kode_barang_variant IN (${stockParams})
+              AND ISNULL(status, 1) = 1
+            GROUP BY kode_barang_variant
+          )
           SELECT
-            kode_barang_variant,
-            SUM(ISNULL(stok, 0)) AS stok_total
-          FROM dbo.GWEN_mn_barang_gudang_variant
-          WHERE kode_barang_variant IN (${stockParams})
-            AND ISNULL(status, 1) = 1
-          GROUP BY kode_barang_variant;
+            variants.kode_barang_variant,
+            ISNULL(gudang_stock.stok_gudang, 0) + ISNULL(toko_stock.stok_toko, 0) AS stok_total
+          FROM (
+            SELECT DISTINCT kode_barang_variant
+            FROM (
+              SELECT kode_barang_variant
+              FROM dbo.GWEN_mn_barang_gudang_variant
+              WHERE kode_barang_variant IN (${stockParams})
+              UNION
+              SELECT kode_barang_variant
+              FROM dbo.GWEN_mn_barang_toko_variant
+              WHERE kode_barang_variant IN (${stockParams})
+            ) variant_union
+          ) variants
+          LEFT JOIN gudang_stock
+            ON gudang_stock.kode_barang_variant COLLATE DATABASE_DEFAULT = variants.kode_barang_variant COLLATE DATABASE_DEFAULT
+          LEFT JOIN toko_stock
+            ON toko_stock.kode_barang_variant COLLATE DATABASE_DEFAULT = variants.kode_barang_variant COLLATE DATABASE_DEFAULT;
         `);
         (stockRes.recordset || []).forEach((row) => {
           stockMap.set(String(row.kode_barang_variant), Number(row.stok_total ?? 0));

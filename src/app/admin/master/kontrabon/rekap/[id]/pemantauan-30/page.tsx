@@ -117,6 +117,11 @@ const statusBayarClass = (value?: string | null) => {
   return normalized === "lunas" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800";
 };
 
+const slotGroupBorderClass = (slot: string) => {
+  const normalized = String(slot || "").trim().toUpperCase();
+  return normalized === "K1" ? "border-r-2 border-r-slate-500" : "border-r-2 border-r-slate-400";
+};
+
 export default function Pemantauan30Page() {
   const params = useParams();
   const id = typeof params?.id === "string" ? params.id : "";
@@ -386,7 +391,11 @@ export default function Pemantauan30Page() {
                         <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-left">Nama Barang</th>
                         <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-left">Supplier</th>
                         {slotOrder.map((slot) => (
-                          <th key={slot} colSpan={5} className="border border-slate-300 px-3 py-2 text-center">
+                          <th
+                            key={slot}
+                            colSpan={5}
+                            className={`border border-slate-300 px-3 py-2 text-center ${slotGroupBorderClass(slot)}`}
+                          >
                             Pengadaan {slot}
                           </th>
                         ))}
@@ -398,7 +407,7 @@ export default function Pemantauan30Page() {
                           <th key={`${slot}-po`} className="border border-slate-300 px-2 py-2 text-center">PO</th>,
                           <th key={`${slot}-pct`} className="border border-slate-300 px-2 py-2 text-center">%</th>,
                           <th key={`${slot}-sisa`} className="border border-slate-300 px-2 py-2 text-center">Sisa</th>,
-                          <th key={`${slot}-umur`} className="border border-slate-300 px-2 py-2 text-center">Umur</th>,
+                          <th key={`${slot}-umur`} className={`border border-slate-300 px-2 py-2 text-center ${slotGroupBorderClass(slot)}`}>Umur</th>,
                         ])}
                       </tr>
                     </thead>
@@ -436,7 +445,10 @@ export default function Pemantauan30Page() {
                               <td key={`${row.kodeBarangVariant}-${slotName}-sisa`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass}`}>
                                 {slot ? formatNumber(slot.sisa) : "-"}
                               </td>,
-                              <td key={`${row.kodeBarangVariant}-${slotName}-umur`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass}`}>
+                              <td
+                                key={`${row.kodeBarangVariant}-${slotName}-umur`}
+                                className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${slotGroupBorderClass(slotName)}`}
+                              >
                                 {slot?.umurHari !== null && slot?.umurHari !== undefined ? `${slot.umurHari} hari` : "-"}
                               </td>,
                             ];
