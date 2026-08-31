@@ -12,6 +12,12 @@ module.exports = {
         PORT: "3500",
         HTTPS_PORT: "3443",
         WEB_BASE_URL: "https://server-home-gwen:3000",
+        IMAGE_STORAGE_ENDPOINT: process.env.IMAGE_STORAGE_ENDPOINT || "https://image.gwencosmetic.com",
+        IMAGE_STORAGE_PUBLIC_URL: process.env.IMAGE_STORAGE_PUBLIC_URL || "https://image.gwencosmetic.com",
+        IMAGE_STORAGE_BUCKET: process.env.IMAGE_STORAGE_BUCKET || "promo-images",
+        IMAGE_STORAGE_REGION: process.env.IMAGE_STORAGE_REGION || "us-east-1",
+        IMAGE_STORAGE_ACCESS_KEY: process.env.IMAGE_STORAGE_ACCESS_KEY,
+        IMAGE_STORAGE_SECRET_KEY: process.env.IMAGE_STORAGE_SECRET_KEY,
       },
     },
     {
