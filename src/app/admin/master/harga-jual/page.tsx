@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ReceiptText, Filter, Plus, ShieldCheck, Eye, CalendarClock } from "lucide-react";
+import { Filter, Plus, ShieldCheck, Eye, CalendarClock, ChevronDown } from "lucide-react";
 import Swal from "sweetalert2";
 import JsBarcode from "jsbarcode";
 
@@ -61,19 +61,34 @@ type KasirPriceResult = {
   }[];
 };
 
+type EventPriceDraft = {
+  harga_1: string;
+  harga_3: string;
+  harga_6: string;
+  harga_12: string;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 const API_URL = `${API_BASE}/barang-harga-jual`;
 const API_HISTORY = `${API_BASE}/barang-harga-jual/history`;
 const API_KASIR_PRICES = `${API_BASE}/barang-harga-jual/kasir-prices`;
 const API_KASIR_SYNC = `${API_BASE}/barang-harga-jual/kasir-prices/sync`;
+const API_KASIR_SYNC_ALL = `${API_BASE}/barang-harga-jual/kasir-prices/sync-all`;
 const API_SUMMARY = `${API_BASE}/barang-harga-jual/summary`;
 const API_COVERAGE = `${API_BASE}/barang-harga-jual/coverage`;
+const KELAS_FILTER_OPTIONS = [
+  { label: "Semua kelas", value: "semua" },
+  { label: "Kelas Harga Offline", value: "OFFLINE" },
+  { label: "Kelas Harga Gwen App", value: "GWEN_APP" },
+  { label: "Kelas Harga Shopee", value: "SHOPEE" },
+  { label: "Kelas Harga Tiktokshop", value: "TIKTOKSHOP" },
+];
 
 export default function MasterHargaJualPage() {
   const [items, setItems] = useState<HargaJual[]>([]);
   const [search, setSearch] = useState("");
   const [kelasFilter, setKelasFilter] = useState("OFFLINE");
-  const [statusFilter, setStatusFilter] = useState("semua");
+  const [statusFilter, setStatusFilter] = useState("aktif");
   const [merkFilter, setMerkFilter] = useState("semua");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,6 +110,7 @@ export default function MasterHargaJualPage() {
   const [bulkHetPercent, setBulkHetPercent] = useState(120);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [totalItems, setTotalItems] = useState(0);
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [showHetBelowOfflineOnly, setShowHetBelowOfflineOnly] = useState(false);
@@ -109,26 +125,66 @@ export default function MasterHargaJualPage() {
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [printLayout, setPrintLayout] = useState<"single" | "double">("single");
   const [selectedVariants, setSelectedVariants] = useState<Set<string>>(new Set());
+  const [eventModalOpen, setEventModalOpen] = useState(false);
+  const [eventName, setEventName] = useState("");
+  const [eventStart, setEventStart] = useState("");
+  const [eventEnd, setEventEnd] = useState("");
+  const [eventPriceDrafts, setEventPriceDrafts] = useState<Record<string, EventPriceDraft>>({});
+  const [eventSaving, setEventSaving] = useState(false);
+  const [restoringEvent, setRestoringEvent] = useState(false);
+  const [restoreEventModalOpen, setRestoreEventModalOpen] = useState(false);
+  const [kasirSyncModalOpen, setKasirSyncModalOpen] = useState(false);
+  const [kasirSyncRunning, setKasirSyncRunning] = useState(false);
+  const [kasirSyncResults, setKasirSyncResults] = useState<{
+    label: string;
+    database: string;
+    status: "pending" | "running" | "success" | "error";
+    message?: string;
+    count?: number;
+    processed?: number;
+    total?: number;
+    currentItem?: string;
+    currentBarcode?: string | null;
+  }[]>([]);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [hargaEvents, setHargaEvents] = useState<any[]>([]);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async (channelCode = kelasFilter) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(API_URL);
+      const params = new URLSearchParams();
+      if (channelCode && channelCode !== "semua") {
+        params.set("channel_code", channelCode);
+      }
+      if (search.trim()) params.set("search", search.trim());
+      if (statusFilter && statusFilter !== "semua") params.set("status", statusFilter);
+      if (merkFilter && merkFilter !== "semua") params.set("merk", merkFilter);
+      params.set("page", String(page));
+      params.set("page_size", String(pageSize));
+      const url = params.toString() ? `${API_URL}?${params.toString()}` : API_URL;
+      const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      if (!Array.isArray(data)) {
-        throw new Error("Invalid response");
-      }
-      setItems(data as HargaJual[]);
+      const rows = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
+      const total = Array.isArray(data) && data.length ? Number(data[0]?.total_count ?? data.length) : Number(data?.total ?? rows.length);
+      setItems(
+        rows.map((row: any) => {
+          const { total_count: _totalCount, ...rest } = row;
+          void _totalCount;
+          return rest;
+        }) as HargaJual[]
+      );
+      setTotalItems(Number.isFinite(total) ? total : rows.length);
     } catch (err) {
       console.error("Failed fetch harga jual", err);
       setError("Gagal memuat harga jual dari server.");
       setItems([]);
+      setTotalItems(0);
     } finally {
       setLoading(false);
     }
-  };
+  }, [kelasFilter, merkFilter, page, pageSize, search, statusFilter]);
 
   const getUsername = () => {
     const rawSession = typeof window !== "undefined" ? localStorage.getItem("kosmetik-admin-session") : null;
@@ -145,7 +201,6 @@ export default function MasterHargaJualPage() {
   };
 
   useEffect(() => {
-    fetchData();
     const fetchSummary = async () => {
       try {
         const res = await fetch(API_SUMMARY);
@@ -164,7 +219,23 @@ export default function MasterHargaJualPage() {
       }
     };
     fetchSummary();
+    const fetchHargaEvents = async () => {
+      try {
+        const res = await fetch(`${API_URL}/events`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        setHargaEvents(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error("Failed fetch harga events", err);
+        setHargaEvents([]);
+      }
+    };
+    fetchHargaEvents();
   }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -495,21 +566,7 @@ export default function MasterHargaJualPage() {
     }
   };
 
-  const kelasOptions = useMemo(() => {
-    const uniq = new Map<string, string>();
-    items.forEach((i) => {
-      if (i.kode_kelas_harga) uniq.set(i.kode_kelas_harga, i.nama_kelas || i.kode_kelas_harga);
-    });
-    return Array.from(uniq.entries()).map(([value, label]) => ({ value, label }));
-  }, [items]);
-
-  useEffect(() => {
-    if (!items.length) return;
-    if (kelasFilter === "OFFLINE") {
-      const hasOffline = kelasOptions.some((opt) => opt.value === "OFFLINE");
-      if (!hasOffline) setKelasFilter("semua");
-    }
-  }, [items, kelasOptions, kelasFilter]);
+  const kelasOptions = KELAS_FILTER_OPTIONS;
 
   const merkOptions = useMemo(() => {
     const uniq = new Map<string, string>();
@@ -528,7 +585,7 @@ export default function MasterHargaJualPage() {
       const barcode = String(item.barcode_varian ?? "").toLowerCase();
       const namaVarian = String(item.nama_varian ?? item.kode_varian ?? "").toLowerCase();
       const matchText = !keyword || barcode.includes(keyword) || namaVarian.includes(keyword);
-      const matchKelas = kelasFilter === "semua" || item.kode_kelas_harga === kelasFilter;
+      const matchKelas = kelasFilter === "semua" || item.channel_code === kelasFilter;
       const matchStatus =
         statusFilter === "semua" ||
         (statusFilter === "aktif" ? item.is_active === 1 : item.is_active !== 1);
@@ -566,6 +623,227 @@ export default function MasterHargaJualPage() {
       }
       return next;
     });
+  };
+
+  const openHargaEventModal = () => {
+    const drafts: Record<string, EventPriceDraft> = {};
+    displayedRows
+      .filter((row) => selectedVariants.has(normalizeKey(row.kode_barang_variant)))
+      .forEach((row) => {
+        const harga = row.harga?.OFFLINE;
+        const key = normalizeKey(row.kode_barang_variant);
+        drafts[key] = {
+          harga_1: harga?.h1 == null ? "" : String(harga.h1),
+          harga_3: harga?.h3 == null ? "" : String(harga.h3),
+          harga_6: harga?.h6 == null ? "" : String(harga.h6),
+          harga_12: harga?.h12 == null ? "" : String(harga.h12),
+        };
+      });
+    setEventPriceDrafts(drafts);
+    setEventModalOpen(true);
+  };
+
+  const handleRestoreHargaNormal = async (event: any) => {
+    if (!event?.kode_t_harga_event) return;
+    const confirm = await Swal.fire({
+      icon: "warning",
+      title: "Kembalikan harga normal?",
+      text: `Event ${event.nama_event} akan dihentikan sekarang.`,
+      showCancelButton: true,
+      confirmButtonText: "Kembalikan",
+      cancelButtonText: "Batal",
+    });
+    if (!confirm.isConfirmed) return;
+    setRestoreEventModalOpen(false);
+    setRestoringEvent(true);
+    try {
+      const res = await fetch(`${API_URL}/events/${event.kode_t_harga_event}/restore`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
+      const eventsRes = await fetch(`${API_URL}/events`);
+      if (eventsRes.ok) setHargaEvents(await eventsRes.json());
+      await Swal.fire("Harga normal dikembalikan", "Harga event sudah dihentikan.", "success");
+    } catch (err) {
+      Swal.fire("Gagal mengembalikan harga", String(err), "error");
+    } finally {
+      setRestoringEvent(false);
+    }
+  };
+
+  const handleSyncAllKasir = async () => {
+    const targets = [
+      { label: "Kasir 1", database: "db_gwen_kasir1" },
+      { label: "Kasir 2", database: "db_gwen_kasir2" },
+      { label: "Kasir 3", database: "db_gwen_kasir3" },
+    ];
+    const confirmed = await Swal.fire({
+      icon: "question",
+      title: "Sinkron semua harga ke kasir?",
+      text: "Harga pusat akan disalin ke seluruh database kasir.",
+      showCancelButton: true,
+      confirmButtonText: "Mulai Sinkron",
+      cancelButtonText: "Batal",
+    });
+    if (!confirmed.isConfirmed) return;
+    setKasirSyncResults(targets.map((target) => ({ ...target, status: "pending" })));
+    setKasirSyncModalOpen(true);
+    setKasirSyncRunning(true);
+    for (const target of targets) {
+      setKasirSyncResults((prev) => prev.map((item) => item.database === target.database ? { ...item, status: "running" } : item));
+      try {
+        const res = await fetch(API_KASIR_SYNC_ALL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ database: target.database, updated_by: getUsername() }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.message || `HTTP ${res.status}`);
+        }
+        if (!res.body) throw new Error("Server tidak mengirim progress stream");
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let processed = 0;
+        let total = 0;
+        while (true) {
+          const { value, done } = await reader.read();
+          buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            const event = JSON.parse(line) as {
+              type?: string;
+              message?: string;
+              processed?: number;
+              total?: number;
+              current_item?: string;
+              current_barcode?: string | null;
+            };
+            if (event.type === "kasir_start") {
+              total = event.total || 0;
+            } else if (event.type === "progress") {
+              processed = event.processed || 0;
+              total = event.total || total;
+              setKasirSyncResults((prev) => prev.map((item) => item.database === target.database ? {
+                ...item,
+                status: "running",
+                processed,
+                total,
+                currentItem: event.current_item,
+                currentBarcode: event.current_barcode,
+              } : item));
+            } else if (event.type === "merge_start") {
+              setKasirSyncResults((prev) => prev.map((item) => item.database === target.database ? {
+                ...item,
+                currentItem: "Menyimpan perubahan ke database kasir...",
+                processed: event.processed || processed,
+                total: event.total || total,
+              } : item));
+            } else if (event.type === "kasir_complete" || event.type === "complete") {
+              processed = event.processed || processed;
+              total = event.total || total;
+            } else if (event.type === "error") {
+              throw new Error(event.message || "Gagal sinkron semua harga kasir");
+            }
+          }
+          if (done) break;
+        }
+        if (buffer.trim()) {
+          const event = JSON.parse(buffer) as { type?: string; message?: string };
+          if (event.type === "error") throw new Error(event.message || "Gagal sinkron semua harga kasir");
+        }
+        setKasirSyncResults((prev) => prev.map((item) => item.database === target.database ? {
+          ...item,
+          status: "success",
+          message: "Semua harga kasir tersinkron",
+          count: processed,
+          processed,
+          total,
+        } : item));
+      } catch (err) {
+        setKasirSyncResults((prev) => prev.map((item) => item.database === target.database ? { ...item, status: "error", message: err instanceof Error ? err.message : String(err) } : item));
+      }
+    }
+    setKasirSyncRunning(false);
+  };
+
+  const activeKasirSync = kasirSyncResults.find((result) => result.status === "running");
+  const completedKasirSync = kasirSyncResults.filter((result) => result.status === "success").length;
+  const activeKasirProgress = activeKasirSync && activeKasirSync.total
+    ? Math.min(100, ((activeKasirSync.processed || 0) / activeKasirSync.total) * 100)
+    : 0;
+  const kasirOverallProgress = kasirSyncResults.length
+    ? ((completedKasirSync + activeKasirProgress / 100) / kasirSyncResults.length) * 100
+    : 0;
+
+  const handleCreateHargaEvent = async () => {
+    const selectedRows = displayedRows.filter((row) => selectedVariants.has(normalizeKey(row.kode_barang_variant)));
+    if (!eventName.trim() || !eventStart || !eventEnd || !selectedRows.length) {
+      Swal.fire({ icon: "warning", title: "Data event belum lengkap", text: "Isi nama, periode, dan pilih minimal satu barang." });
+      return;
+    }
+    const eventItems = selectedRows.flatMap((row) => {
+      const harga = row.harga?.OFFLINE;
+      if (!harga?.id_kelas_harga) return [];
+      const draft = eventPriceDrafts[normalizeKey(row.kode_barang_variant)];
+      const parsePrice = (value: string | undefined, fallback: number | null | undefined) => {
+        if (!value?.trim()) return fallback == null ? null : Number(fallback);
+        const parsed = Number(value);
+        return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed) : NaN;
+      };
+      const prices = [
+        parsePrice(draft?.harga_1, harga.h1),
+        parsePrice(draft?.harga_3, harga.h3),
+        parsePrice(draft?.harga_6, harga.h6),
+        parsePrice(draft?.harga_12, harga.h12),
+      ];
+      if (prices.some((price) => Number.isNaN(price))) return [];
+      return [{
+        kode_barang_variant: row.kode_barang_variant,
+        id_kelas_harga: harga.id_kelas_harga,
+        harga_1: prices[0],
+        harga_3: prices[1],
+        harga_6: prices[2],
+        harga_12: prices[3],
+      }];
+    });
+    if (!eventItems.length) {
+      Swal.fire({ icon: "warning", title: "Harga event belum valid", text: "Isi harga event dengan angka nol atau lebih untuk setiap item." });
+      return;
+    }
+    setEventSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nama_event: eventName.trim(),
+          berlaku_mulai: new Date(eventStart).toISOString(),
+          berlaku_sampai: new Date(eventEnd).toISOString(),
+          items: eventItems,
+          created_by: localStorage.getItem("username") || "Admin",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
+      const eventsRes = await fetch(`${API_URL}/events`);
+      if (eventsRes.ok) {
+        const eventsData = await eventsRes.json();
+        setHargaEvents(Array.isArray(eventsData) ? eventsData : []);
+      }
+      setEventModalOpen(false);
+      setSelectedVariants(new Set());
+      await Swal.fire("Harga event dibuat", `${eventItems.length} barang dijadwalkan. SQL Agent akan mengaktifkan otomatis sesuai periode.`, "success");
+    } catch (err) {
+      Swal.fire("Gagal membuat harga event", String(err), "error");
+    } finally {
+      setEventSaving(false);
+    }
   };
 
   const handlePrintPriceTag = (layout: "single" | "double") => {
@@ -956,6 +1234,13 @@ export default function MasterHargaJualPage() {
     });
   }, [groupedByVarian, showHetBelowOfflineOnly, showHargaBelowBuyOnly, hasHargaJualBelowOrEqualBuy]);
 
+  const activeHargaEvent = hargaEvents.find((event) => event.status === "ACTIVE");
+  const activeHargaEvents = hargaEvents.filter((event) => event.status === "ACTIVE");
+  const scheduledHargaEvent = hargaEvents.find((event) => event.status === "SCHEDULED");
+  const activeEventVariants = new Set(
+    (activeHargaEvent?.items || []).map((item: any) => normalizeKey(item.kode_barang_variant))
+  );
+
   const getSortValue = (row: any, key: string) => {
     if (key.startsWith("price:")) {
       const [, channel, tier] = key.split(":");
@@ -1001,13 +1286,12 @@ export default function MasterHargaJualPage() {
     return sortDir === "asc" ? sorted : sorted.reverse();
   }, [displayedRows, sortKey, sortDir]);
 
-  const totalPages = Math.max(1, Math.ceil(displayedRows.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
   const pagedRows = useMemo(() => {
-    const start = (page - 1) * pageSize;
-    return sortedRows.slice(start, start + pageSize);
-  }, [sortedRows, page, pageSize]);
-  const rangeStart = displayedRows.length ? (page - 1) * pageSize + 1 : 0;
-  const rangeEnd = Math.min(page * pageSize, displayedRows.length);
+    return sortedRows;
+  }, [sortedRows]);
+  const rangeStart = totalItems ? (page - 1) * pageSize + 1 : 0;
+  const rangeEnd = Math.min(page * pageSize, totalItems);
 
   useEffect(() => {
     if (page > totalPages) {
@@ -1175,13 +1459,49 @@ export default function MasterHargaJualPage() {
   };
 
   return (
-    <div className="p-4 md:p-6 space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-4 md:p-6">
+      <div className="flex flex-col gap-3 border-b border-gray-200 pb-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-1">
           <p className="text-sm text-gray-500">Master Data</p>
           <h1 className="text-2xl font-bold text-gray-900">Master Harga Jual</h1>
+          <div className="flex flex-wrap items-center gap-2 pt-1 text-xs font-semibold">
+            {activeHargaEvent ? (
+              <>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1.5 text-amber-800">
+                  <span className="h-2 w-2 rounded-full bg-amber-500" />
+                  {activeEventVariants.size} item event aktif
+                </span>
+                <span className="text-amber-700">{activeHargaEvent.nama_event}</span>
+              </>
+            ) : null}
+            {scheduledHargaEvent ? (
+              <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1.5 text-slate-600">
+                Event berikutnya: {scheduledHargaEvent.nama_event}
+              </span>
+            ) : null}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-col items-stretch gap-2 lg:max-w-[calc(100%-320px)]">
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={handleSyncAllKasir}
+              disabled={kasirSyncRunning}
+              className="inline-flex items-center justify-between gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm font-semibold text-sky-800 shadow-sm hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {kasirSyncRunning ? "Sinkronisasi..." : "Sinkron ke Kasir"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActionsOpen((open) => !open)}
+              className="inline-flex items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50"
+              aria-expanded={actionsOpen}
+            >
+              Aksi & Navigasi
+              <ChevronDown className={`h-4 w-4 transition-transform ${actionsOpen ? "rotate-180" : ""}`} />
+            </button>
+          </div>
+          {actionsOpen && <div className="flex flex-wrap items-center justify-end gap-2 rounded-xl border border-gray-200 bg-gray-50 p-2">
           <button
             type="button"
             onClick={handleExportExcel}
@@ -1189,7 +1509,7 @@ export default function MasterHargaJualPage() {
           >
             Export Excel
           </button>
-          <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
+          <div className="ml-1 flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
             <span className="text-sm text-gray-600 font-semibold">HET %</span>
             <input
               type="number"
@@ -1249,12 +1569,47 @@ export default function MasterHargaJualPage() {
               {liveEdit ? "Live Edit: ON" : "Live Edit"}
             </button>
           )}
+          {canLiveEdit && (
+            <button
+              type="button"
+              onClick={() => {
+                const now = new Date();
+                const end = new Date(now);
+                end.setDate(end.getDate() + 1);
+                const toLocalInput = (date: Date) =>
+                  new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+                setEventStart(toLocalInput(now));
+                setEventEnd(toLocalInput(end));
+                openHargaEventModal();
+              }}
+              disabled={!selectedVariants.size}
+              className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 font-semibold shadow-sm hover:bg-amber-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Harga Event ({selectedVariants.size})
+            </button>
+          )}
+          {canLiveEdit && activeHargaEvents.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setRestoreEventModalOpen(true)}
+              disabled={restoringEvent}
+              className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 font-semibold text-rose-700 shadow-sm transition-all hover:bg-rose-100 disabled:opacity-60"
+            >
+              {restoringEvent ? "Mengembalikan..." : `Kembalikan Harga Normal (${activeHargaEvents.length})`}
+            </button>
+          )}
           <Link
             href="/admin/master/harga-jual/recent"
             className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-700 font-semibold shadow-sm hover:bg-gray-50 transition-all"
           >
             <CalendarClock className="w-5 h-5" />
             Perubahan Harga Terbaru
+          </Link>
+          <Link
+            href="/admin/master/harga-event"
+            className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border border-sky-200 bg-sky-50 text-sky-800 font-semibold shadow-sm hover:bg-sky-100 transition-all"
+          >
+            Kelola Harga Event
           </Link>
           <Link
             href="/admin/master/harga-jual/approval"
@@ -1271,6 +1626,7 @@ export default function MasterHargaJualPage() {
             <Plus className="w-5 h-5" />
             Edit Harga Jual
           </Link>
+          </div>}
         </div>
       </div>
 
@@ -1319,44 +1675,21 @@ export default function MasterHargaJualPage() {
         />
       </div>
 
-      <div className="bg-white border border-gray-100 rounded-2xl shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between px-4 py-3 border-b border-gray-100">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#3FE0D0]/15 text-[#0f756b] flex items-center justify-center">
-              <ReceiptText className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Daftar Harga Jual</p>
-              <p className="text-base font-semibold text-gray-800">
-                Pantau harga per barang & kelas {loading ? "(memuat...)" : ""}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 text-xs text-gray-500">
-            <ShieldCheck className="w-4 h-4" />
-            {loading ? "Memuat..." : "Sinkron server"}
-          </div>
-        </div>
-
+      <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden bg-white border border-gray-100 rounded-2xl shadow-sm">
         {error && (
           <div className="bg-amber-50 border-b border-amber-100 text-amber-800 text-sm px-4 py-3">
             {error}
           </div>
         )}
 
-        <div className="px-4 py-3 flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
-          <div className="flex items-center gap-2 text-gray-600 font-semibold text-sm">
-            <Filter className="w-4 h-4" /> Filter
+        <div className="flex flex-col gap-2 border-b border-gray-100 bg-gray-50/70 px-3 py-2.5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="inline-flex shrink-0 items-center gap-2 text-xs font-bold uppercase tracking-wide text-gray-600">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-gray-500 shadow-sm">
+              <Filter className="h-3.5 w-3.5" />
+            </span>
+            Filter Data
           </div>
-          <div className="flex flex-col md:flex-row gap-3 w-full lg:w-auto">
-            <div className="flex-1 min-w-[200px]">
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Cari barcode varian / nama varian"
-                className="w-full rounded-lg border-2 border-gray-200 px-3 py-2.5 focus:border-[#3FE0D0] focus:outline-none"
-              />
-            </div>
+          <div className="flex w-full flex-col gap-2 md:flex-row lg:w-auto">
             <Select
               label="Status"
               value={statusFilter}
@@ -1379,12 +1712,21 @@ export default function MasterHargaJualPage() {
               onChange={setKelasFilter}
               options={[{ label: "Semua kelas", value: "semua" }, ...kelasOptions]}
             />
+            <div className="min-w-[220px] flex-1 lg:ml-2 lg:border-l lg:border-gray-200 lg:pl-3">
+              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-500">Pencarian</span>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Cari barcode varian / nama varian"
+                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-[#3FE0D0] focus:outline-none"
+              />
+            </div>
           </div>
         </div>
 
         <div className="px-4 pb-3 flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600">
           <div>
-            Menampilkan {rangeStart} - {rangeEnd} dari {displayedRows.length} item
+            Menampilkan {rangeStart} - {rangeEnd} dari {totalItems} item
           </div>
           <div className="flex items-center gap-2">
             <span>Per halaman</span>
@@ -1423,9 +1765,9 @@ export default function MasterHargaJualPage() {
           </div>
         </div>
 
-        <div className="overflow-x-auto overflow-y-auto max-h-[60vh]">
-          <table className="min-w-[1100px] text-left border border-gray-300">
-            <thead>
+        <div className="min-h-0 w-full max-w-full flex-1 overflow-x-auto overflow-y-auto overscroll-x-contain">
+          <table className="w-max min-w-[1100px] border border-gray-300 text-left text-xs leading-tight [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
+            <thead className="sticky top-0 z-20">
               <tr className="text-xs uppercase tracking-wide text-gray-500 bg-gray-50">
                 <th className="px-3 py-3 border border-gray-300 sticky left-0 bg-gray-50 z-10 w-12" rowSpan={2}>
                   <input
@@ -1440,24 +1782,24 @@ export default function MasterHargaJualPage() {
                 <th className="px-3 py-3 border border-gray-300 sticky left-[48px] bg-gray-50 z-10" rowSpan={2}>
                   Detail
                 </th>
-                <th className="px-4 py-3 border border-gray-300 sticky left-[112px] bg-gray-50 z-10" rowSpan={2}>
+                <th className="w-[220px] min-w-[220px] max-w-[220px] px-4 py-3 border border-gray-300 sticky left-[112px] bg-gray-50 z-10" rowSpan={2}>
                   <button type="button" onClick={() => toggleSort("nama_barang")} className="flex items-center gap-1">
                     Nama Barang <span className="text-[10px]">{sortIndicator("nama_barang")}</span>
                   </button>
                 </th>
-                <th className="px-4 py-3 border border-gray-300" rowSpan={2}>
-                  <button type="button" onClick={() => toggleSort("nama_merk")} className="flex items-center gap-1">
-                    Merk <span className="text-[10px]">{sortIndicator("nama_merk")}</span>
+                <th className="w-[220px] min-w-[220px] max-w-[220px] px-4 py-3 border border-gray-300 sticky left-[332px] bg-gray-50 z-10" rowSpan={2}>
+                  <button type="button" onClick={() => toggleSort("nama_varian")} className="flex items-center gap-1">
+                    Nama Varian <span className="text-[10px]">{sortIndicator("nama_varian")}</span>
                   </button>
                 </th>
-                <th className="px-4 py-3 border border-gray-300" rowSpan={2}>
+                <th className="w-[160px] min-w-[160px] max-w-[160px] px-4 py-3 border border-gray-300 sticky left-[552px] bg-gray-50 z-10" rowSpan={2}>
                   <button type="button" onClick={() => toggleSort("barcode_varian")} className="flex items-center gap-1">
                     Barcode Varian <span className="text-[10px]">{sortIndicator("barcode_varian")}</span>
                   </button>
                 </th>
-                <th className="px-4 py-3 border border-gray-300 sticky left-[352px] bg-gray-50 z-10" rowSpan={2}>
-                  <button type="button" onClick={() => toggleSort("nama_varian")} className="flex items-center gap-1">
-                    Nama Varian <span className="text-[10px]">{sortIndicator("nama_varian")}</span>
+                <th className="w-[140px] min-w-[140px] max-w-[140px] px-4 py-3 border border-gray-300" rowSpan={2}>
+                  <button type="button" onClick={() => toggleSort("nama_merk")} className="flex items-center gap-1">
+                    Merk <span className="text-[10px]">{sortIndicator("nama_merk")}</span>
                   </button>
                 </th>
                 <th className="px-4 py-3 border border-gray-300" rowSpan={2}>
@@ -1465,6 +1807,7 @@ export default function MasterHargaJualPage() {
                     Status Aktif <span className="text-[10px]">{sortIndicator("status")}</span>
                   </button>
                 </th>
+                <th className="px-4 py-3 border border-gray-300" rowSpan={2}>Sumber Harga</th>
                 <th className="px-4 py-3 border border-gray-300" rowSpan={2}>
                   <button type="button" onClick={() => toggleSort("harga_beli")} className="flex items-center gap-1">
                     Harga Beli <span className="text-[10px]">{sortIndicator("harga_beli")}</span>
@@ -1587,7 +1930,20 @@ export default function MasterHargaJualPage() {
               </tr>
             </thead>
             <tbody className="text-sm">
-              {pagedRows.map((row) => {
+              {loading && Array.from({ length: 8 }).map((_, index) => (
+                <tr key={`harga-skeleton-${index}`} className="animate-pulse">
+                  <td colSpan={12 + Math.max(channelList.length, 1) * 4} className="border border-gray-200 px-2 py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="h-3 w-5 rounded bg-gray-200" />
+                      <div className="h-3 w-28 rounded bg-gray-200" />
+                      <div className="h-3 w-40 rounded bg-gray-200" />
+                      <div className="h-3 w-24 rounded bg-gray-200" />
+                      <div className="h-3 flex-1 rounded bg-gray-200" />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {!loading && pagedRows.map((row) => {
                 const statusBarang = Number(row.status_barang ?? 0);
                 const statusVarian = Number(row.status_varian ?? 0);
                 const isInactive = statusBarang !== 1 || statusVarian !== 1;
@@ -1628,18 +1984,12 @@ export default function MasterHargaJualPage() {
                       </button>
                     </td>
                     <td
-                      className={`px-4 py-3 border border-gray-200 sticky left-[112px] z-10 ${stickyBg}`}
+                      className={`w-[220px] min-w-[220px] max-w-[220px] px-4 py-3 border border-gray-200 sticky left-[112px] z-10 ${stickyBg}`}
                     >
                       <div className="font-semibold text-gray-900">{row.nama_barang || "-"}</div>
                     </td>
-                    <td className="px-4 py-3 border border-gray-200">
-                      {row.nama_merk || row.kode_merk || "-"}
-                    </td>
-                    <td className="px-4 py-3 border border-gray-200">
-                      {row.barcode_varian || "-"}
-                    </td>
                     <td
-                      className={`px-4 py-3 border border-gray-200 sticky left-[352px] z-10 ${stickyBg}`}
+                      className={`w-[220px] min-w-[220px] max-w-[220px] px-4 py-3 border border-gray-200 sticky left-[332px] z-10 ${stickyBg}`}
                     >
                       <div className="flex items-center gap-2">
                         <div className="text-gray-800">{row.nama_varian || row.kode_varian || "-"}</div>
@@ -1652,6 +2002,12 @@ export default function MasterHargaJualPage() {
                         </button>
                       </div>
                     </td>
+                    <td className={`w-[160px] min-w-[160px] max-w-[160px] px-4 py-3 border border-gray-200 sticky left-[552px] z-10 ${stickyBg}`}>
+                      {row.barcode_varian || "-"}
+                    </td>
+                    <td className="w-[140px] min-w-[140px] max-w-[140px] px-4 py-3 border border-gray-200">
+                      {row.nama_merk || row.kode_merk || "-"}
+                    </td>
                     <td className="px-4 py-3 border border-gray-200">
                       {statusBarang === 1 && statusVarian === 1 ? (
                         <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
@@ -1660,6 +2016,17 @@ export default function MasterHargaJualPage() {
                       ) : (
                         <span className="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-700">
                           Tidak aktif
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 border border-gray-200">
+                      {activeEventVariants.has(normalizeKey(row.kode_barang_variant)) ? (
+                        <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                          Event Aktif
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                          Normal
                         </span>
                       )}
                     </td>
@@ -1704,9 +2071,10 @@ export default function MasterHargaJualPage() {
                       const tone = chIdx % 2 === 0 ? "bg-[#f7fffd]" : "bg-[#f9fbff]";
                       const h = row.harga[ch];
                       const hargaKeyBase = `${row.kode_barang_variant}-${ch}`;
+                      const eventActiveForCell = ch === "OFFLINE" && activeEventVariants.has(normalizeKey(row.kode_barang_variant));
                       return (
                         <React.Fragment key={`${row.kode_barang_variant}-${ch}`}>
-                          <td className={getHargaCellClass(tone, h?.h1, row.harga_beli)}>
+                          <td className={`${getHargaCellClass(tone, h?.h1, row.harga_beli)} ${eventActiveForCell ? "!bg-yellow-200 !text-yellow-950" : ""}`}>
                             {liveEdit && canLiveEdit ? (
                               <input
                                 defaultValue={h?.h1 ?? ""}
@@ -1735,8 +2103,9 @@ export default function MasterHargaJualPage() {
                             ) : (
                               "-"
                             )}
+                            {eventActiveForCell ? <span className="mt-0.5 block text-[9px] font-bold uppercase tracking-wide text-yellow-800">EVENT</span> : null}
                           </td>
-                          <td className={getHargaCellClass(tone, h?.h3, row.harga_beli)}>
+                          <td className={`${getHargaCellClass(tone, h?.h3, row.harga_beli)} ${eventActiveForCell ? "!bg-yellow-200 !text-yellow-950" : ""}`}>
                             {liveEdit && canLiveEdit ? (
                               <input
                                 defaultValue={h?.h3 ?? ""}
@@ -1765,8 +2134,9 @@ export default function MasterHargaJualPage() {
                             ) : (
                               "-"
                             )}
+                            {eventActiveForCell ? <span className="mt-0.5 block text-[9px] font-bold uppercase tracking-wide text-yellow-800">EVENT</span> : null}
                           </td>
-                          <td className={getHargaCellClass(tone, h?.h6, row.harga_beli)}>
+                          <td className={`${getHargaCellClass(tone, h?.h6, row.harga_beli)} ${eventActiveForCell ? "!bg-yellow-200 !text-yellow-950" : ""}`}>
                             {liveEdit && canLiveEdit ? (
                               <input
                                 defaultValue={h?.h6 ?? ""}
@@ -1795,9 +2165,10 @@ export default function MasterHargaJualPage() {
                             ) : (
                               "-"
                             )}
+                            {eventActiveForCell ? <span className="mt-0.5 block text-[9px] font-bold uppercase tracking-wide text-yellow-800">EVENT</span> : null}
                           </td>
                           <td
-                            className={getHargaCellClass(tone, h?.h12, row.harga_beli, "border-r-4 border-r-gray-300")}
+                            className={`${getHargaCellClass(tone, h?.h12, row.harga_beli, "border-r-4 border-r-gray-300")} ${eventActiveForCell ? "!bg-yellow-200 !text-yellow-950" : ""}`}
                           >
                             {liveEdit && canLiveEdit ? (
                               <input
@@ -1827,6 +2198,7 @@ export default function MasterHargaJualPage() {
                             ) : (
                               "-"
                             )}
+                            {eventActiveForCell ? <span className="mt-0.5 block text-[9px] font-bold uppercase tracking-wide text-yellow-800">EVENT</span> : null}
                           </td>
                         </React.Fragment>
                       );
@@ -2131,6 +2503,223 @@ export default function MasterHargaJualPage() {
           </div>
         </div>
       )}
+
+      {restoreEventModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-gray-100 bg-white p-5 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-rose-700">Pemulihan Harga</p>
+                <h2 className="text-lg font-bold text-gray-900">Pilih Event</h2>
+                <p className="mt-1 text-sm text-gray-500">Pilih event aktif yang ingin dihentikan dan dikembalikan ke harga normal.</p>
+              </div>
+              <button type="button" onClick={() => setRestoreEventModalOpen(false)} className="rounded-lg border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50">Tutup</button>
+            </div>
+            <div className="mt-5 space-y-2">
+              {activeHargaEvents.map((event) => (
+                <div key={event.kode_t_harga_event} className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 p-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-gray-900">{event.nama_event}</p>
+                    <p className="text-xs text-gray-500">{event.total_item ?? event.items?.length ?? 0} item aktif</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleRestoreHargaNormal(event)}
+                    disabled={restoringEvent}
+                    className="shrink-0 rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-60"
+                  >
+                    Kembalikan
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {eventModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl border border-gray-100">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs text-amber-700 font-semibold uppercase tracking-wide">Harga Jual Offline</p>
+                <h2 className="text-lg font-bold text-gray-900">Buat Harga Event</h2>
+                <p className="mt-1 text-sm text-gray-500">Harga normal disimpan dan dikembalikan otomatis setelah event berakhir.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEventModalOpen(false)}
+                className="rounded-lg border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+              >
+                Tutup
+              </button>
+            </div>
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <label className="sm:col-span-2 flex flex-col gap-1 text-sm font-semibold text-gray-700">
+                Nama event
+                <input
+                  value={eventName}
+                  onChange={(e) => setEventName(e.target.value)}
+                  placeholder="Contoh: Promo 17 Agustus"
+                  className="rounded-lg border border-gray-200 px-3 py-2 font-normal focus:border-amber-400 focus:outline-none"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm font-semibold text-gray-700">
+                Mulai
+                <input
+                  type="datetime-local"
+                  value={eventStart}
+                  onChange={(e) => setEventStart(e.target.value)}
+                  className="rounded-lg border border-gray-200 px-3 py-2 font-normal focus:border-amber-400 focus:outline-none"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm font-semibold text-gray-700">
+                Selesai
+                <input
+                  type="datetime-local"
+                  value={eventEnd}
+                  onChange={(e) => setEventEnd(e.target.value)}
+                  className="rounded-lg border border-gray-200 px-3 py-2 font-normal focus:border-amber-400 focus:outline-none"
+                />
+              </label>
+              <div className="sm:col-span-2 rounded-xl border border-amber-100 bg-amber-50/60 p-3">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">Harga event per item</p>
+                    <p className="text-xs text-gray-600">Isi nominal berbeda untuk tiap item. Harga normal ditampilkan sebagai referensi.</p>
+                  </div>
+                  <span className="text-xs font-semibold text-amber-800">{selectedVariants.size} item dipilih</span>
+                </div>
+                <div className="max-h-64 overflow-auto rounded-lg border border-amber-100 bg-white">
+                  <table className="min-w-[760px] w-full text-xs">
+                    <thead className="sticky top-0 bg-amber-50 text-left text-gray-600">
+                      <tr>
+                        <th className="px-2 py-2">Item</th>
+                        <th className="px-2 py-2">1 PCS</th>
+                        <th className="px-2 py-2">3 PCS</th>
+                        <th className="px-2 py-2">6 PCS</th>
+                        <th className="px-2 py-2">12 PCS</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {displayedRows
+                        .filter((row) => selectedVariants.has(normalizeKey(row.kode_barang_variant)))
+                        .map((row) => {
+                          const key = normalizeKey(row.kode_barang_variant);
+                          const harga = row.harga?.OFFLINE;
+                          const draft = eventPriceDrafts[key] || { harga_1: "", harga_3: "", harga_6: "", harga_12: "" };
+                          return (
+                            <tr key={`event-price-${key}`}>
+                              <td className="max-w-[260px] px-2 py-2">
+                                <div className="truncate font-semibold text-gray-800" title={row.nama_varian || row.kode_varian}>{row.nama_varian || row.kode_varian || key}</div>
+                                <div className="text-[10px] text-gray-500">Normal: {formatRupiah(harga?.h1)} / {formatRupiah(harga?.h3)} / {formatRupiah(harga?.h6)} / {formatRupiah(harga?.h12)}</div>
+                              </td>
+                              {(["harga_1", "harga_3", "harga_6", "harga_12"] as const).map((field) => (
+                                <td key={field} className="px-2 py-2">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={draft[field]}
+                                    onChange={(e) => setEventPriceDrafts((prev) => ({
+                                      ...prev,
+                                      [key]: { ...draft, [field]: e.target.value },
+                                    }))}
+                                    className="w-28 rounded-md border border-gray-200 px-2 py-1.5 text-right text-xs focus:border-amber-400 focus:outline-none"
+                                  />
+                                </td>
+                              ))}
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEventModalOpen(false)}
+                className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateHargaEvent}
+                disabled={eventSaving}
+                className="px-3 py-2 rounded-lg bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 disabled:opacity-60"
+              >
+                {eventSaving ? "Menyimpan..." : "Jadwalkan Event"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {kasirSyncModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-gray-100 bg-white p-5 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Sinkronisasi Harga</p>
+                <h2 className="text-lg font-bold text-gray-900">Sinkron ke Kasir</h2>
+                <p className="mt-1 text-sm text-gray-500">Proses dilakukan satu per satu agar status setiap kasir terlihat jelas.</p>
+              </div>
+              <button type="button" onClick={() => !kasirSyncRunning && setKasirSyncModalOpen(false)} disabled={kasirSyncRunning} className="rounded-lg border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+                Tutup
+              </button>
+            </div>
+            <div className="mt-5">
+              <div className="mb-1 flex items-center justify-between text-xs font-semibold text-gray-600">
+                <span>Progress sinkronisasi</span>
+                <span>{Math.round(kasirOverallProgress)}%</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+                <div className="h-full rounded-full bg-sky-500 transition-[width] duration-300" style={{ width: `${kasirOverallProgress}%` }} />
+              </div>
+            </div>
+            <div className="mt-5 space-y-2">
+              {kasirSyncResults.map((result) => (
+                <div key={result.database} className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-900">{result.label}</p>
+                      <p className="text-[11px] text-gray-500">{result.database}</p>
+                      {result.status === "running" && result.currentItem ? (
+                        <p className="mt-1 truncate text-xs text-sky-700" title={result.currentItem}>Memproses: {result.currentItem}</p>
+                      ) : null}
+                      {result.status === "running" && result.currentBarcode ? (
+                        <p className="text-[11px] text-gray-500">Barcode: {result.currentBarcode}</p>
+                      ) : null}
+                      {result.message && result.status !== "success" ? <p className="mt-1 text-xs text-rose-600">{result.message}</p> : null}
+                    </div>
+                    <div className="shrink-0 text-right text-xs font-semibold">
+                      {result.status === "pending" && <span className="text-gray-400">Menunggu</span>}
+                      {result.status === "running" && <span className="text-sky-600">Memproses...</span>}
+                      {result.status === "success" && <span className="text-emerald-600">Berhasil ({result.count ?? 0} data)</span>}
+                      {result.status === "error" && <span className="text-rose-600">Gagal</span>}
+                    </div>
+                  </div>
+                  {result.status === "running" && result.total ? (
+                    <div className="mt-2 flex items-center gap-2">
+                      <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-gray-200">
+                        <div className="h-full rounded-full bg-sky-500 transition-[width] duration-200" style={{ width: `${Math.min(100, ((result.processed || 0) / result.total) * 100)}%` }} />
+                      </div>
+                      <span className="shrink-0 text-[11px] text-gray-500">{(result.processed || 0).toLocaleString("id-ID")} / {result.total.toLocaleString("id-ID")}</span>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+            {!kasirSyncRunning && kasirSyncResults.length > 0 ? (
+              <div className="mt-5 flex justify-end">
+                <button type="button" onClick={() => setKasirSyncModalOpen(false)} className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700">Selesai</button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2147,14 +2736,16 @@ function SummaryCard({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="p-4 rounded-xl border border-gray-100 bg-white shadow-sm flex items-center gap-3">
-      <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${accent} text-white flex items-center justify-center font-bold`}>
+    <div className="flex min-w-0 items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2.5 shadow-sm">
+      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${accent} text-xs font-bold text-white`}>
         {value.split(" ")[0]}
       </div>
-      <div>
-        <p className="text-xs text-gray-500">{title}</p>
-        <p className="text-lg font-semibold text-gray-900">{value}</p>
-        {action ? <div className="mt-1">{action}</div> : null}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[11px] text-gray-500">{title}</p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="truncate text-sm font-semibold text-gray-900">{value}</p>
+          {action ? <div>{action}</div> : null}
+        </div>
       </div>
     </div>
   );
@@ -2172,12 +2763,12 @@ function Select({
   options: { label: string; value: string }[];
 }) {
   return (
-    <label className="flex flex-col gap-1 text-sm font-semibold text-gray-700">
-      <span className="text-xs text-gray-500">{label}</span>
+    <label className="flex min-w-[140px] flex-1 flex-col gap-1 text-sm font-semibold text-gray-700">
+      <span className="text-[10px] font-bold uppercase tracking-wide text-gray-500">{label}</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-lg border-2 border-gray-200 px-3 py-2.5 focus:border-[#3FE0D0] focus:outline-none transition-colors bg-white"
+        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm transition-colors focus:border-[#3FE0D0] focus:outline-none"
       >
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>

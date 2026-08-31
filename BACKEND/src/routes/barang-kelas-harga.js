@@ -47,6 +47,246 @@ export default async function barangKelasHargaRoutes(fastify) {
     return Number((((val - base) / base) * 100).toFixed(2));
   };
 
+  fastify.get("/events", async (_request, reply) => {
+    try {
+      const result = await pool.request().query(`
+        SELECT h.kode_t_harga_event, h.nama_event, h.berlaku_mulai, h.berlaku_sampai,
+               h.status, h.created_by, h.created_at,
+               COUNT(d.id) AS total_item
+        FROM dbo.GWEN_t_harga_event h
+        LEFT JOIN dbo.GWEN_d_harga_event_variant d
+          ON d.kode_t_harga_event = h.kode_t_harga_event
+        GROUP BY h.kode_t_harga_event, h.nama_event, h.berlaku_mulai, h.berlaku_sampai,
+                 h.status, h.created_by, h.created_at
+        ORDER BY h.berlaku_mulai DESC, h.created_at DESC;`);
+      const details = await pool.request().query(`
+        SELECT kode_t_harga_event, kode_barang_variant, id_kelas_harga
+        FROM dbo.GWEN_d_harga_event_variant;`);
+      const itemsByEvent = new Map();
+      for (const item of details.recordset || []) {
+        const list = itemsByEvent.get(item.kode_t_harga_event) || [];
+        list.push(item);
+        itemsByEvent.set(item.kode_t_harga_event, list);
+      }
+      return reply.send((result.recordset || []).map((event) => ({
+        ...event,
+        items: itemsByEvent.get(event.kode_t_harga_event) || [],
+      })));
+    } catch (err) {
+      fastify.log.error({ err }, "Failed to fetch harga events");
+      return reply.code(500).send({ message: "Gagal memuat harga event" });
+    }
+  });
+
+  fastify.post("/events", async (request, reply) => {
+    const body = request.body || {};
+    const namaEvent = String(body.nama_event || "").trim();
+    const mulai = new Date(body.berlaku_mulai);
+    const selesai = new Date(body.berlaku_sampai);
+    const items = Array.isArray(body.items) ? body.items : [];
+    const createdBy = String(body.created_by || "Admin").trim() || "Admin";
+    if (!namaEvent || Number.isNaN(mulai.getTime()) || Number.isNaN(selesai.getTime()) || selesai <= mulai || !items.length) {
+      return reply.code(400).send({ message: "Nama, periode valid, dan minimal satu item wajib diisi" });
+    }
+
+    const tx = new sql.Transaction(pool);
+    try {
+      await tx.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+      const kodeEvent = generateDetailCode("HEV");
+      await new sql.Request(tx)
+        .input("kode_t_harga_event", sql.VarChar(50), kodeEvent)
+        .input("nama_event", sql.VarChar(200), namaEvent)
+        .input("berlaku_mulai", sql.DateTime2, mulai)
+        .input("berlaku_sampai", sql.DateTime2, selesai)
+        .input("created_by", sql.VarChar(100), createdBy)
+        .input("updated_by", sql.VarChar(100), createdBy)
+        .query(`INSERT INTO dbo.GWEN_t_harga_event
+                (kode_t_harga_event, nama_event, berlaku_mulai, berlaku_sampai, status, created_by, updated_by)
+                VALUES (@kode_t_harga_event, @nama_event, @berlaku_mulai, @berlaku_sampai, 'SCHEDULED', @created_by, @updated_by);`);
+
+      const seen = new Set();
+      for (const item of items) {
+        const variant = String(item.kode_barang_variant || "").trim();
+        const classId = Number(item.id_kelas_harga);
+        const key = `${variant}:${classId}`;
+        if (!variant || !Number.isInteger(classId) || seen.has(key)) continue;
+        seen.add(key);
+
+        const current = await new sql.Request(tx)
+          .input("kode_barang_variant", sql.VarChar(50), variant)
+          .input("id_kelas_harga", sql.Int, classId)
+          .query(`SELECT TOP 1 kode_mn_harga_jual, harga_1, harga_3, harga_6, harga_12
+                  FROM dbo.GWEN_mn_barang_harga_jual_variant
+                  WHERE kode_barang_variant = @kode_barang_variant
+                    AND id_kelas_harga = @id_kelas_harga AND is_active = 1
+                  ORDER BY updated_at DESC, kode_mn_harga_jual DESC;`);
+        const row = current.recordset?.[0];
+        if (!row) throw new Error(`Harga aktif tidak ditemukan: ${variant} / kelas ${classId}`);
+
+        const requestItem = new sql.Request(tx)
+          .input("kode_t_harga_event", sql.VarChar(50), kodeEvent)
+          .input("kode_barang_variant", sql.VarChar(50), variant)
+          .input("id_kelas_harga", sql.Int, classId)
+          .input("kode_mn_harga_jual", sql.VarChar(50), row.kode_mn_harga_jual)
+          .input("harga_normal_1", sql.Decimal(20, 2), row.harga_1)
+          .input("harga_normal_3", sql.Decimal(20, 2), row.harga_3)
+          .input("harga_normal_6", sql.Decimal(20, 2), row.harga_6)
+          .input("harga_normal_12", sql.Decimal(20, 2), row.harga_12)
+          .input("harga_event_1", sql.Decimal(20, 2), item.harga_1 == null ? row.harga_1 : Number(item.harga_1))
+          .input("harga_event_3", sql.Decimal(20, 2), item.harga_3 == null ? row.harga_3 : Number(item.harga_3))
+          .input("harga_event_6", sql.Decimal(20, 2), item.harga_6 == null ? row.harga_6 : Number(item.harga_6))
+          .input("harga_event_12", sql.Decimal(20, 2), item.harga_12 == null ? row.harga_12 : Number(item.harga_12));
+        await requestItem.query(`INSERT INTO dbo.GWEN_d_harga_event_variant
+          (kode_t_harga_event, kode_barang_variant, id_kelas_harga, kode_mn_harga_jual,
+           harga_normal_1, harga_normal_3, harga_normal_6, harga_normal_12,
+           harga_event_1, harga_event_3, harga_event_6, harga_event_12)
+          VALUES (@kode_t_harga_event, @kode_barang_variant, @id_kelas_harga, @kode_mn_harga_jual,
+           @harga_normal_1, @harga_normal_3, @harga_normal_6, @harga_normal_12,
+           @harga_event_1, @harga_event_3, @harga_event_6, @harga_event_12);`);
+      }
+
+      if (!seen.size) throw new Error("Tidak ada item event yang valid");
+      await tx.commit();
+      return reply.code(201).send({ kode_t_harga_event: kodeEvent, total_item: seen.size });
+    } catch (err) {
+      await tx.rollback().catch(() => {});
+      fastify.log.error({ err }, "Failed to create harga event");
+      return reply.code(500).send({ message: err?.message || "Gagal membuat harga event" });
+    }
+  });
+
+  fastify.post("/events/run", async (_request, reply) => {
+    try {
+      await pool.request().query("EXEC dbo.sp_apply_harga_event;");
+      return reply.send({ message: "Harga event diproses" });
+    } catch (err) {
+      fastify.log.error({ err }, "Failed to run harga event");
+      return reply.code(500).send({ message: err?.message || "Gagal memproses harga event" });
+    }
+  });
+
+  fastify.post("/events/:kode/restore", async (request, reply) => {
+    const kodeEvent = String(request.params?.kode || "").trim();
+    if (!kodeEvent) return reply.code(400).send({ message: "Kode event wajib diisi" });
+    try {
+      const result = await pool.request()
+        .input("kode_t_harga_event", sql.VarChar(50), kodeEvent)
+        .query(`UPDATE dbo.GWEN_t_harga_event
+                SET berlaku_sampai = SYSUTCDATETIME(), status = 'ACTIVE', updated_at = SYSUTCDATETIME(), updated_by = 'Manual'
+                WHERE kode_t_harga_event = @kode_t_harga_event AND status = 'ACTIVE';
+                SELECT @@ROWCOUNT AS affected;`);
+      if (!result.recordset?.[0]?.affected) return reply.code(404).send({ message: "Event aktif tidak ditemukan" });
+      await pool.request().query("EXEC dbo.sp_apply_harga_event;");
+      return reply.send({ message: "Harga normal dikembalikan" });
+    } catch (err) {
+      fastify.log.error({ err }, "Failed to restore harga event");
+      return reply.code(500).send({ message: err?.message || "Gagal mengembalikan harga normal" });
+    }
+  });
+
+  fastify.get("/events/:kode", async (request, reply) => {
+    const kodeEvent = String(request.params?.kode || "").trim();
+    if (!kodeEvent) return reply.code(400).send({ message: "Kode event wajib diisi" });
+    try {
+      const header = await pool.request()
+        .input("kode_t_harga_event", sql.VarChar(50), kodeEvent)
+        .query(`SELECT kode_t_harga_event, nama_event, berlaku_mulai, berlaku_sampai, status,
+                       created_by, created_at, updated_by, updated_at
+                FROM dbo.GWEN_t_harga_event
+                WHERE kode_t_harga_event = @kode_t_harga_event;`);
+      const event = header.recordset?.[0];
+      if (!event) return reply.code(404).send({ message: "Event tidak ditemukan" });
+      const details = await pool.request()
+        .input("kode_t_harga_event", sql.VarChar(50), kodeEvent)
+        .query(`SELECT d.id, d.kode_barang_variant, d.id_kelas_harga,
+                       b.nama AS nama_barang, v.nama_varian, v.kode_varian, v.barcode_varian,
+                       d.harga_normal_1, d.harga_normal_3, d.harga_normal_6, d.harga_normal_12,
+                       d.harga_event_1, d.harga_event_3, d.harga_event_6, d.harga_event_12,
+                       d.applied
+                FROM dbo.GWEN_d_harga_event_variant d
+                LEFT JOIN dbo.m_barang_varian v ON v.kode_barang_variant = d.kode_barang_variant
+                LEFT JOIN dbo.m_barang b ON b.id_barang = v.id_barang
+                WHERE d.kode_t_harga_event = @kode_t_harga_event
+                ORDER BY b.nama, v.nama_varian, d.id;`);
+      return reply.send({ ...event, items: details.recordset || [] });
+    } catch (err) {
+      fastify.log.error({ err }, "Failed to fetch harga event detail");
+      return reply.code(500).send({ message: "Gagal memuat detail harga event" });
+    }
+  });
+
+  fastify.put("/events/:kode", async (request, reply) => {
+    const kodeEvent = String(request.params?.kode || "").trim();
+    const body = request.body || {};
+    const namaEvent = String(body.nama_event || "").trim();
+    const mulai = new Date(body.berlaku_mulai);
+    const selesai = new Date(body.berlaku_sampai);
+    const items = Array.isArray(body.items) ? body.items : [];
+    const updatedBy = String(body.updated_by || "Admin").trim() || "Admin";
+    if (!kodeEvent || !namaEvent || Number.isNaN(mulai.getTime()) || Number.isNaN(selesai.getTime()) || selesai <= mulai || !items.length) {
+      return reply.code(400).send({ message: "Nama, periode valid, dan minimal satu item wajib diisi" });
+    }
+    const tx = new sql.Transaction(pool);
+    try {
+      await tx.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+      const exists = await new sql.Request(tx)
+        .input("kode_t_harga_event", sql.VarChar(50), kodeEvent)
+        .query(`SELECT status FROM dbo.GWEN_t_harga_event WHERE kode_t_harga_event = @kode_t_harga_event;`);
+      if (!exists.recordset?.length) throw new Error("Event tidak ditemukan");
+      if (exists.recordset[0].status !== "SCHEDULED") throw new Error("Hanya event terjadwal yang dapat diedit");
+      await new sql.Request(tx)
+        .input("kode_t_harga_event", sql.VarChar(50), kodeEvent)
+        .input("nama_event", sql.VarChar(200), namaEvent)
+        .input("berlaku_mulai", sql.DateTime2, mulai)
+        .input("berlaku_sampai", sql.DateTime2, selesai)
+        .input("updated_by", sql.VarChar(100), updatedBy)
+        .query(`UPDATE dbo.GWEN_t_harga_event
+                SET nama_event = @nama_event, berlaku_mulai = @berlaku_mulai,
+                    berlaku_sampai = @berlaku_sampai, updated_by = @updated_by, updated_at = SYSUTCDATETIME()
+                WHERE kode_t_harga_event = @kode_t_harga_event;`);
+      for (const item of items) {
+        const id = Number(item.id);
+        if (!Number.isInteger(id)) continue;
+        await new sql.Request(tx)
+          .input("id", sql.BigInt, id)
+          .input("kode_t_harga_event", sql.VarChar(50), kodeEvent)
+          .input("harga_event_1", sql.Decimal(20, 2), Number(item.harga_event_1))
+          .input("harga_event_3", sql.Decimal(20, 2), Number(item.harga_event_3))
+          .input("harga_event_6", sql.Decimal(20, 2), Number(item.harga_event_6))
+          .input("harga_event_12", sql.Decimal(20, 2), Number(item.harga_event_12))
+          .query(`UPDATE dbo.GWEN_d_harga_event_variant
+                  SET harga_event_1 = @harga_event_1, harga_event_3 = @harga_event_3,
+                      harga_event_6 = @harga_event_6, harga_event_12 = @harga_event_12
+                  WHERE id = @id AND kode_t_harga_event = @kode_t_harga_event;`);
+      }
+      await tx.commit();
+      return reply.send({ message: "Event berhasil diperbarui" });
+    } catch (err) {
+      await tx.rollback().catch(() => {});
+      fastify.log.error({ err }, "Failed to update harga event");
+      return reply.code(err?.message?.includes("Hanya event") ? 409 : 500).send({ message: err?.message || "Gagal memperbarui event" });
+    }
+  });
+
+  fastify.post("/events/:kode/cancel", async (request, reply) => {
+    const kodeEvent = String(request.params?.kode || "").trim();
+    const updatedBy = String(request.body?.updated_by || "Admin").trim() || "Admin";
+    try {
+      const result = await pool.request()
+        .input("kode_t_harga_event", sql.VarChar(50), kodeEvent)
+        .input("updated_by", sql.VarChar(100), updatedBy)
+        .query(`UPDATE dbo.GWEN_t_harga_event
+                SET status = 'CANCELLED', updated_by = @updated_by, updated_at = SYSUTCDATETIME()
+                WHERE kode_t_harga_event = @kode_t_harga_event AND status = 'SCHEDULED';
+                SELECT @@ROWCOUNT AS affected;`);
+      if (!result.recordset?.[0]?.affected) return reply.code(409).send({ message: "Hanya event terjadwal yang dapat dibatalkan" });
+      return reply.send({ message: "Event dibatalkan" });
+    } catch (err) {
+      fastify.log.error({ err }, "Failed to cancel harga event");
+      return reply.code(500).send({ message: err?.message || "Gagal membatalkan event" });
+    }
+  });
+
   const innerSelectColumns = `
     h.kode_mn_harga_jual AS id,
     b.id_barang,
@@ -121,53 +361,103 @@ export default async function barangKelasHargaRoutes(fastify) {
     .filter(Boolean)
     .map((col) => `r.${col}`)
     .join(",\n    ");
+  const hargaJualSharedCtes = `
+            stok_gudang AS (
+              SELECT
+                g.kode_barang_variant COLLATE DATABASE_DEFAULT AS kode_barang_variant,
+                SUM(g.stok) AS stok_gudang
+              FROM dbo.GWEN_mn_barang_gudang_variant g
+              GROUP BY g.kode_barang_variant COLLATE DATABASE_DEFAULT
+            ),
+            stok_toko AS (
+              SELECT
+                t.kode_barang_variant COLLATE DATABASE_DEFAULT AS kode_barang_variant,
+                SUM(t.stok_available) AS stok_toko
+              FROM dbo.GWEN_mn_barang_toko_variant t
+              GROUP BY t.kode_barang_variant COLLATE DATABASE_DEFAULT
+            ),
+            req_latest AS (
+              SELECT
+                d.kode_barang_variant COLLATE DATABASE_DEFAULT AS kode_barang_variant,
+                d.id_kelas_harga,
+                d.status_item AS last_request_status,
+                t.requested_at AS last_request_at,
+                ROW_NUMBER() OVER (
+                  PARTITION BY d.kode_barang_variant COLLATE DATABASE_DEFAULT, d.id_kelas_harga
+                  ORDER BY t.requested_at DESC, d.kode_d_request DESC
+                ) AS rn
+              FROM dbo.GWEN_d_harga_jual_request d
+              JOIN dbo.GWEN_t_harga_jual_request t
+                ON t.kode_t_request = d.kode_t_request
+            )`;
+  const hargaJualFromClause = `
+            FROM dbo.GWEN_mn_barang_harga_jual_variant h
+            LEFT JOIN dbo.m_barang_varian v ON v.kode_barang_variant = h.kode_barang_variant
+            LEFT JOIN dbo.m_barang b ON b.id_barang = v.id_barang
+            LEFT JOIN stok_gudang sg ON sg.kode_barang_variant = v.kode_barang_variant
+            LEFT JOIN stok_toko st ON st.kode_barang_variant = v.kode_barang_variant
+            LEFT JOIN dbo.m_merk mk ON mk.id_merk = TRY_CONVERT(INT, b.kode_merk)
+            LEFT JOIN dbo.m_kelas_harga kh ON kh.id_kelas_harga = h.id_kelas_harga
+            LEFT JOIN req_latest req
+              ON req.kode_barang_variant = h.kode_barang_variant
+             AND req.id_kelas_harga = h.id_kelas_harga
+             AND req.rn = 1`;
 
-  fastify.get("/", async (_req, reply) => {
+  fastify.get("/", async (req, reply) => {
+    const channelCode = String(req.query?.channel_code || "").trim().toUpperCase();
+    const searchRaw = String(req.query?.search || "").trim();
+    const statusFilter = String(req.query?.status || "").trim().toLowerCase();
+    const merkFilter = String(req.query?.merk || "").trim();
+    const pageNumber = Math.max(Number(req.query?.page || 1) || 1, 1);
+    const pageSize = Math.min(Math.max(Number(req.query?.page_size || 50) || 50, 1), 200);
+    const offset = (pageNumber - 1) * pageSize;
+    const filters = [];
+    if (channelCode) filters.push("kh.channel_code = @channel_code");
+    if (statusFilter === "aktif") filters.push("h.is_active = 1");
+    if (statusFilter === "nonaktif") filters.push("h.is_active <> 1");
+    if (merkFilter) filters.push("LTRIM(RTRIM(COALESCE(b.kode_merk, ''))) = @kode_merk");
+    if (searchRaw) {
+      filters.push(`(
+        b.nama LIKE @search_like
+        OR v.nama_varian LIKE @search_like
+        OR v.barcode_varian LIKE @search_like
+        OR v.kode_varian LIKE @search_like
+        OR b.kode_barang LIKE @search_like
+        OR v.kode_barang_variant LIKE @search_like
+      )`);
+    }
+    const channelWhereClause = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
     try {
-      const result = await pool
-        .request()
-        .query(
-          `WITH ranked AS (
+      const request = pool.request();
+      if (channelCode) {
+        request.input("channel_code", sql.VarChar(50), channelCode);
+      }
+      if (merkFilter) {
+        request.input("kode_merk", sql.VarChar(50), merkFilter);
+      }
+      if (searchRaw) {
+        request.input("search_like", sql.VarChar(255), `%${searchRaw.replace(/[%_]/g, (ch) => `[${ch}]`)}%`);
+      }
+      request.input("offset_rows", sql.Int, offset);
+      request.input("page_size", sql.Int, pageSize);
+      const result = await request.query(
+          `WITH ${hargaJualSharedCtes},
+           ranked AS (
             SELECT
               ${innerSelectColumns},
               ROW_NUMBER() OVER (
                 PARTITION BY h.kode_barang_variant, h.id_kelas_harga
                 ORDER BY h.updated_at DESC, h.berlaku_mulai DESC, h.kode_mn_harga_jual DESC
               ) AS rn
-            FROM dbo.GWEN_mn_barang_harga_jual_variant h
-            LEFT JOIN dbo.m_barang_varian v ON v.kode_barang_variant = h.kode_barang_variant
-            LEFT JOIN dbo.m_barang b ON b.id_barang = v.id_barang
-            OUTER APPLY (
-              SELECT SUM(g.stok) AS stok_gudang
-              FROM dbo.GWEN_mn_barang_gudang_variant g
-              WHERE g.kode_barang_variant COLLATE DATABASE_DEFAULT = v.kode_barang_variant COLLATE DATABASE_DEFAULT
-            ) sg
-            OUTER APPLY (
-              SELECT SUM(t.stok_available) AS stok_toko
-              FROM dbo.GWEN_mn_barang_toko_variant t
-              WHERE t.kode_barang_variant COLLATE DATABASE_DEFAULT = v.kode_barang_variant COLLATE DATABASE_DEFAULT
-            ) st
-            OUTER APPLY (
-              SELECT CASE WHEN ISNUMERIC(b.kode_merk) = 1 THEN CAST(b.kode_merk AS INT) END AS kode_merk_int
-            ) mapm
-            LEFT JOIN dbo.m_merk mk ON mk.id_merk = mapm.kode_merk_int
-            LEFT JOIN dbo.m_kelas_harga kh ON kh.id_kelas_harga = h.id_kelas_harga
-            OUTER APPLY (
-              SELECT TOP 1
-                d.status_item AS last_request_status,
-                t.requested_at AS last_request_at
-              FROM dbo.GWEN_d_harga_jual_request d
-              JOIN dbo.GWEN_t_harga_jual_request t
-                ON t.kode_t_request = d.kode_t_request
-              WHERE d.kode_barang_variant = h.kode_barang_variant
-                AND d.id_kelas_harga = h.id_kelas_harga
-              ORDER BY t.requested_at DESC, d.kode_d_request DESC
-            ) req
+            ${hargaJualFromClause}
+            ${channelWhereClause}
           )
-          SELECT ${outerSelectColumns}
+          SELECT ${outerSelectColumns},
+                 COUNT(1) OVER() AS total_count
           FROM ranked
           WHERE rn = 1
-          ORDER BY berlaku_mulai DESC, updated_at DESC;`
+          ORDER BY berlaku_mulai DESC, updated_at DESC
+          OFFSET @offset_rows ROWS FETCH NEXT @page_size ROWS ONLY;`
         );
       return reply.send(result.recordset || []);
     } catch (err) {
@@ -179,6 +469,7 @@ export default async function barangKelasHargaRoutes(fastify) {
   fastify.get("/recent", async (request, reply) => {
     const startRaw = String(request.query?.start || "").trim();
     const endRaw = String(request.query?.end || "").trim();
+    const channelCode = String(request.query?.channel_code || "").trim().toUpperCase();
     const nowDate = new Date();
 
     let startDate = startRaw ? new Date(startRaw) : new Date(nowDate);
@@ -206,6 +497,8 @@ export default async function barangKelasHargaRoutes(fastify) {
       const req = pool.request();
       req.input("start_date", sql.DateTime2, startDate);
       req.input("end_date", sql.DateTime2, endExclusive);
+      if (channelCode) req.input("channel_code", sql.VarChar(50), channelCode);
+      const channelWhereClause = channelCode ? "AND kh.channel_code = @channel_code" : "";
 
       const result = await req.query(
         `WITH approved_req AS (
@@ -237,6 +530,7 @@ export default async function barangKelasHargaRoutes(fastify) {
            FROM change_ranked
            WHERE rn = 1
          ),
+         ${hargaJualSharedCtes},
          ranked AS (
            SELECT
              ${innerSelectColumns},
@@ -244,35 +538,8 @@ export default async function barangKelasHargaRoutes(fastify) {
                PARTITION BY h.kode_barang_variant, h.id_kelas_harga
                ORDER BY h.updated_at DESC, h.berlaku_mulai DESC, h.kode_mn_harga_jual DESC
              ) AS rn
-           FROM dbo.GWEN_mn_barang_harga_jual_variant h
-           LEFT JOIN dbo.m_barang_varian v ON v.kode_barang_variant = h.kode_barang_variant
-           LEFT JOIN dbo.m_barang b ON b.id_barang = v.id_barang
-           OUTER APPLY (
-             SELECT SUM(g.stok) AS stok_gudang
-             FROM dbo.GWEN_mn_barang_gudang_variant g
-             WHERE g.kode_barang_variant COLLATE DATABASE_DEFAULT = v.kode_barang_variant COLLATE DATABASE_DEFAULT
-           ) sg
-           OUTER APPLY (
-             SELECT SUM(t.stok_available) AS stok_toko
-             FROM dbo.GWEN_mn_barang_toko_variant t
-             WHERE t.kode_barang_variant COLLATE DATABASE_DEFAULT = v.kode_barang_variant COLLATE DATABASE_DEFAULT
-           ) st
-           OUTER APPLY (
-             SELECT CASE WHEN ISNUMERIC(b.kode_merk) = 1 THEN CAST(b.kode_merk AS INT) END AS kode_merk_int
-           ) mapm
-           LEFT JOIN dbo.m_merk mk ON mk.id_merk = mapm.kode_merk_int
-           LEFT JOIN dbo.m_kelas_harga kh ON kh.id_kelas_harga = h.id_kelas_harga
-           OUTER APPLY (
-             SELECT TOP 1
-               d.status_item AS last_request_status,
-               t.requested_at AS last_request_at
-             FROM dbo.GWEN_d_harga_jual_request d
-             JOIN dbo.GWEN_t_harga_jual_request t
-               ON t.kode_t_request = d.kode_t_request
-             WHERE d.kode_barang_variant = h.kode_barang_variant
-               AND d.id_kelas_harga = h.id_kelas_harga
-             ORDER BY t.requested_at DESC, d.kode_d_request DESC
-           ) req
+           ${hargaJualFromClause}
+           ${channelWhereClause}
          )
          SELECT
            ${outerSelectColumnsWithAlias},
@@ -735,6 +1002,112 @@ export default async function barangKelasHargaRoutes(fastify) {
     } catch (err) {
       fastify.log.error({ err }, "Failed sync kasir price");
       return reply.code(500).send({ message: err?.message || "Gagal sinkron harga kasir" });
+    }
+  });
+
+  fastify.post("/kasir-prices/sync-all", async (request, reply) => {
+    const database = String(request.body?.database || "").trim();
+    const updatedBy = String(request.body?.updated_by || "Admin").trim() || "Admin";
+    const target = kasirTargets.find((item) => item.database === database);
+    if (!target) return reply.code(400).send({ message: "Database kasir tidak valid" });
+
+    let targetPool;
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+      Connection: "keep-alive",
+    });
+    const sendEvent = (event) => reply.raw.write(`${JSON.stringify(event)}\n`);
+    sendEvent({ type: "start", total_targets: 3 });
+    try {
+      const central = await pool.request().query(`
+        WITH ranked AS (
+          SELECT h.kode_mn_harga_jual, h.kode_barang_variant, h.id_kelas_harga,
+                 h.harga_1, h.harga_3, h.harga_6, h.harga_12, h.berlaku_mulai, h.is_active,
+                 b.nama AS nama_barang, v.nama_varian, v.barcode_varian,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY h.kode_barang_variant, h.id_kelas_harga
+                   ORDER BY h.updated_at DESC, h.berlaku_mulai DESC, h.kode_mn_harga_jual DESC
+                 ) AS rn
+          FROM dbo.GWEN_mn_barang_harga_jual_variant h
+          LEFT JOIN dbo.m_barang_varian v ON v.kode_barang_variant = h.kode_barang_variant
+          LEFT JOIN dbo.m_barang b ON b.id_barang = v.id_barang
+        )
+        SELECT kode_barang_variant, id_kelas_harga, harga_1, harga_3, harga_6, harga_12,
+               berlaku_mulai, is_active, nama_barang, nama_varian, barcode_varian
+        FROM ranked WHERE rn = 1;`);
+      const rows = central.recordset || [];
+      targetPool = createKasirPool(target);
+      sendEvent({ type: "kasir_start", database, label: target.label, total: rows.length });
+      await targetPool.connect();
+      const tx = new sql.Transaction(targetPool);
+      await tx.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
+      try {
+        const syncTable = new sql.Table("#harga_sync");
+        syncTable.create = true;
+        syncTable.columns.add("kode_barang_variant", sql.VarChar(100), { nullable: false });
+        syncTable.columns.add("id_kelas_harga", sql.Int, { nullable: false });
+        syncTable.columns.add("harga_1", sql.Decimal(20, 2), { nullable: true });
+        syncTable.columns.add("harga_3", sql.Decimal(20, 2), { nullable: true });
+        syncTable.columns.add("harga_6", sql.Decimal(20, 2), { nullable: true });
+        syncTable.columns.add("harga_12", sql.Decimal(20, 2), { nullable: true });
+        syncTable.columns.add("berlaku_mulai", sql.DateTime2, { nullable: true });
+        syncTable.columns.add("is_active", sql.Int, { nullable: false });
+        for (const row of rows) {
+          syncTable.rows.add(
+            row.kode_barang_variant, Number(row.id_kelas_harga), row.harga_1 ?? null, row.harga_3 ?? null,
+            row.harga_6 ?? null, row.harga_12 ?? null, row.berlaku_mulai || new Date(), Number(row.is_active) === 1 ? 1 : 0
+          );
+          if ((syncTable.rows.length % 500 === 0) || syncTable.rows.length === rows.length) {
+            sendEvent({
+              type: "progress",
+              database,
+              processed: syncTable.rows.length,
+              total: rows.length,
+              current_item: row.nama_varian || row.nama_barang || row.kode_barang_variant,
+              current_barcode: row.barcode_varian || null,
+            });
+          }
+        }
+        sendEvent({ type: "merge_start", database, label: target.label, processed: rows.length, total: rows.length });
+        await new sql.Request(tx).bulk(syncTable);
+        await new sql.Request(tx)
+          .input("updated_by", sql.VarChar(100), updatedBy)
+          .query(`
+            MERGE dbo.GWEN_mn_barang_harga_jual_variant AS target
+            USING #harga_sync AS source
+              ON target.kode_barang_variant = source.kode_barang_variant
+             AND target.id_kelas_harga = source.id_kelas_harga
+            WHEN MATCHED THEN UPDATE SET
+              target.harga_1 = source.harga_1, target.harga_3 = source.harga_3,
+              target.harga_6 = source.harga_6, target.harga_12 = source.harga_12,
+              target.berlaku_mulai = source.berlaku_mulai, target.is_active = source.is_active,
+              target.updated_by = @updated_by, target.updated_at = SYSUTCDATETIME()
+            WHEN NOT MATCHED BY TARGET THEN INSERT
+              (kode_mn_harga_jual, kode_barang_variant, id_kelas_harga, harga_1, harga_3, harga_6, harga_12,
+               berlaku_mulai, is_active, updated_by, updated_at)
+              VALUES (CONCAT('SYNC', REPLACE(CONVERT(varchar(36), NEWID()), '-', '')),
+                      source.kode_barang_variant, source.id_kelas_harga, source.harga_1, source.harga_3,
+                      source.harga_6, source.harga_12, source.berlaku_mulai, source.is_active,
+                      @updated_by, SYSUTCDATETIME());`);
+        await tx.commit();
+        sendEvent({ type: "kasir_complete", database, label: target.label, processed: rows.length, total: rows.length, message: "Semua harga kasir tersinkron" });
+        sendEvent({ type: "complete", database, label: target.label, processed: rows.length, total: rows.length });
+        reply.raw.end();
+        return;
+      } catch (err) {
+        await tx.rollback().catch(() => {});
+        throw err;
+      }
+    } catch (err) {
+      fastify.log.error({ err, target }, "Failed bulk sync kasir prices");
+      sendEvent({ type: "error", database, label: target.label, message: err?.message || "Gagal sinkron semua harga kasir" });
+      reply.raw.end();
+      return;
+    } finally {
+      if (targetPool) await targetPool.close().catch(() => {});
     }
   });
 

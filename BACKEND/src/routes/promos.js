@@ -1,7 +1,27 @@
 import crypto from "node:crypto";
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 export default async function promoRoutes(fastify) {
   const { sql, pool } = fastify.mssql;
+  const imageStorage = {
+    endpoint: process.env.IMAGE_STORAGE_ENDPOINT || "https://image.gwencosmetic.com",
+    publicUrl: (process.env.IMAGE_STORAGE_PUBLIC_URL || "https://image.gwencosmetic.com").replace(/\/+$/, ""),
+    bucket: process.env.IMAGE_STORAGE_BUCKET || "promo-images",
+    region: process.env.IMAGE_STORAGE_REGION || "us-east-1",
+    accessKeyId: process.env.IMAGE_STORAGE_ACCESS_KEY,
+    secretAccessKey: process.env.IMAGE_STORAGE_SECRET_KEY,
+  };
+  const imageS3 = imageStorage.accessKeyId && imageStorage.secretAccessKey
+    ? new S3Client({
+        endpoint: imageStorage.endpoint,
+        region: imageStorage.region,
+        forcePathStyle: true,
+        credentials: {
+          accessKeyId: imageStorage.accessKeyId,
+          secretAccessKey: imageStorage.secretAccessKey,
+        },
+      })
+    : null;
   const kasirTargets = [
     { server: "gwenkasir1\\SQLEXPRESS", database: "db_gwen_kasir1" },
     { server: "gwenkasir2\\SQLEXPRESS", database: "db_gwen_kasir2" },
@@ -616,6 +636,12 @@ export default async function promoRoutes(fastify) {
              FROM dbo.GWEN_d_promosi_benefit b
              WHERE b.kode_t_promosi = p.kode_t_promosi
            ) AS benefit_info,
+           (
+             SELECT TOP 1 bnr.banner_url
+             FROM dbo.GWEN_d_promosi_banner bnr
+             WHERE bnr.kode_t_promosi = p.kode_t_promosi AND ISNULL(bnr.is_active, 1) = 1
+             ORDER BY bnr.created_at DESC
+           ) AS banner_url,
            p.is_archived,
            p.created_by,
            p.created_at,
@@ -1198,8 +1224,26 @@ export default async function promoRoutes(fastify) {
         return reply.code(404).send({ message: "Promosi tidak ditemukan" });
       }
 
+      reply.raw.writeHead(200, {
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      });
+      const sendProgress = (event) => {
+        if (!reply.raw.writableEnded) reply.raw.write(`${JSON.stringify(event)}\n`);
+      };
       const results = [];
-      for (const target of kasirTargets) {
+      sendProgress({ type: "start", kode_t_promosi: kode, total: kasirTargets.length });
+
+      for (const [index, target] of kasirTargets.entries()) {
+        sendProgress({
+          type: "kasir_start",
+          index: index + 1,
+          total: kasirTargets.length,
+          server: target.server,
+          database: target.database,
+        });
         const targetPool = createKasirPool(target);
         try {
           await targetPool.connect();
@@ -1210,34 +1254,49 @@ export default async function promoRoutes(fastify) {
             await deleteChildren(trx, kode);
             await insertChildren(trx, kode, payload);
             await trx.commit();
-            results.push({
+            const result = {
               server: target.server,
               database: target.database,
               ok: true,
-            });
+            };
+            results.push(result);
+            sendProgress({ type: "kasir_complete", index: index + 1, total: kasirTargets.length, ...result });
           } catch (err) {
             await trx.rollback().catch(() => {});
             throw err;
           }
         } catch (err) {
-          results.push({
+          const result = {
             server: target.server,
             database: target.database,
             ok: false,
             error: err?.originalError?.info?.message || err?.message || "Gagal sync promosi",
-          });
+          };
+          results.push(result);
+          sendProgress({ type: "kasir_complete", index: index + 1, total: kasirTargets.length, ...result });
         } finally {
           await targetPool.close().catch(() => {});
         }
       }
 
       const hasFailure = results.some((row) => !row.ok);
-      return reply.code(hasFailure ? 207 : 200).send({
+      sendProgress({
+        type: "complete",
         kode_t_promosi: kode,
         results,
+        status: hasFailure ? "partial" : "success",
       });
+      reply.raw.end();
+      return reply;
     } catch (err) {
       fastify.log.error({ err }, "Failed sync promosi to kasir");
+      if (reply.raw.headersSent) {
+        if (!reply.raw.writableEnded) {
+          reply.raw.write(`${JSON.stringify({ type: "error", message: err.message || "Gagal sync promosi ke kasir" })}\n`);
+          reply.raw.end();
+        }
+        return reply;
+      }
       return reply.code(500).send({ message: err.message || "Gagal sync promosi ke kasir" });
     }
   });
@@ -1301,6 +1360,74 @@ export default async function promoRoutes(fastify) {
     } catch (err) {
       fastify.log.error({ err }, "Failed add banner promosi");
       return reply.code(500).send({ message: "Gagal menambahkan banner" });
+    }
+  });
+
+  fastify.post("/:id/banner-image", async (request, reply) => {
+    const kode = String(request.params?.id || "").trim();
+    if (!kode) return reply.code(400).send({ message: "kode promosi tidak valid" });
+    if (!imageS3) return reply.code(503).send({ message: "Image storage belum dikonfigurasi" });
+
+    try {
+      const file = await request.file();
+      if (!file) return reply.code(400).send({ message: "File gambar wajib diunggah" });
+      if (!String(file.mimetype || "").startsWith("image/")) {
+        return reply.code(415).send({ message: "File harus berupa gambar" });
+      }
+
+      const promo = await pool
+        .request()
+        .input("kode_t_promosi", sql.VarChar(50), kode)
+        .query("SELECT TOP 1 kode_t_promosi FROM dbo.GWEN_t_promosi WHERE kode_t_promosi = @kode_t_promosi;");
+      if (!promo.recordset?.length) return reply.code(404).send({ message: "Promosi tidak ditemukan" });
+
+      const body = await file.toBuffer();
+      const extension = String(file.filename || "").match(/\.[a-z0-9]+$/i)?.[0].toLowerCase() || ".jpg";
+      const objectKey = `promo/${kode}/${crypto.randomUUID()}${extension}`;
+      await imageS3.send(new PutObjectCommand({
+        Bucket: imageStorage.bucket,
+        Key: objectKey,
+        Body: body,
+        ContentType: file.mimetype,
+        CacheControl: "public, max-age=31536000, immutable",
+      }));
+
+      const bannerUrl = `${imageStorage.publicUrl}/${imageStorage.bucket}/${objectKey}`;
+      const existing = await pool
+        .request()
+        .input("kode_t_promosi", sql.VarChar(50), kode)
+        .query(`SELECT TOP 1 kode_d_banner FROM dbo.GWEN_d_promosi_banner
+                WHERE kode_t_promosi = @kode_t_promosi AND ISNULL(is_active, 1) = 1
+                ORDER BY created_at DESC;`);
+      const bannerId = existing.recordset?.[0]?.kode_d_banner || generateDetailCode("PBN");
+
+      if (existing.recordset?.length) {
+        await pool
+          .request()
+          .input("kode_d_banner", sql.VarChar(50), bannerId)
+          .input("kode_t_promosi", sql.VarChar(50), kode)
+          .input("banner_url", sql.VarChar(500), bannerUrl)
+          .input("banner_type", sql.VarChar(10), "IMAGE")
+          .query(`UPDATE dbo.GWEN_d_promosi_banner
+                  SET banner_url = @banner_url, banner_type = @banner_type, is_active = 1
+                  WHERE kode_d_banner = @kode_d_banner AND kode_t_promosi = @kode_t_promosi;`);
+      } else {
+        await pool
+          .request()
+          .input("kode_d_banner", sql.VarChar(50), bannerId)
+          .input("kode_t_promosi", sql.VarChar(50), kode)
+          .input("banner_url", sql.VarChar(500), bannerUrl)
+          .input("banner_type", sql.VarChar(10), "IMAGE")
+          .input("created_by", sql.VarChar(100), String(request.body?.updated_by || "Admin"))
+          .query(`INSERT INTO dbo.GWEN_d_promosi_banner
+                  (kode_d_banner, kode_t_promosi, is_show_tv, tv_priority, banner_type, banner_url, is_active, created_by)
+                  VALUES (@kode_d_banner, @kode_t_promosi, 0, 0, @banner_type, @banner_url, 1, @created_by);`);
+      }
+
+      return reply.code(201).send({ kode_t_promosi: kode, kode_d_banner: bannerId, banner_url: bannerUrl });
+    } catch (err) {
+      fastify.log.error({ err }, "Failed upload banner image promosi");
+      return reply.code(500).send({ message: err?.message || "Gagal upload gambar promo" });
     }
   });
 

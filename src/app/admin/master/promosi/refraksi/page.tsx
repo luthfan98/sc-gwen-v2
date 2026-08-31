@@ -12,7 +12,9 @@ import {
   Download,
   Filter,
   ListChecks,
+  LoaderCircle,
   Plus,
+  Upload,
   XCircle,
 } from "lucide-react";
 
@@ -31,6 +33,14 @@ const getDefaultPromoListDateRange = () => {
     from: toDateInputValue(start),
     to: toDateInputValue(end),
   };
+};
+
+type SyncKasirResult = {
+  server: string;
+  database: string;
+  ok: boolean;
+  error?: string;
+  state?: "pending" | "running" | "success" | "failed";
 };
 
 export default function PromoRefraksiPage() {
@@ -99,6 +109,15 @@ export default function PromoRefraksiPage() {
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [reactivatingId, setReactivatingId] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [syncPromoName, setSyncPromoName] = useState("");
+  const [syncProgress, setSyncProgress] = useState<SyncKasirResult[]>([]);
+  const [syncTotal, setSyncTotal] = useState(4);
+  const [syncCompleted, setSyncCompleted] = useState(0);
+  const [syncFinished, setSyncFinished] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [uploadingImageId, setUploadingImageId] = useState<string | null>(null);
+  const [imagePreview, setImagePreview] = useState<{ url: string; name: string; kode: string } | null>(null);
 
   const toLocalDateStr = (value: Date) => {
     return toDateInputValue(value);
@@ -406,41 +425,102 @@ export default function PromoRefraksiPage() {
     if (!kode) return;
 
     setSyncingId(kode);
+    setSyncPromoName(String(row?.nama_promosi || kode));
+    setSyncProgress([]);
+    setSyncTotal(4);
+    setSyncCompleted(0);
+    setSyncFinished(false);
+    setSyncError(null);
+    setSyncModalOpen(true);
+
     try {
       const res = await fetch(`${API_BASE}/promos/${encodeURIComponent(kode)}/sync-to-kasir`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ updated_by: getUsername() }),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok && res.status !== 207) {
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}));
         throw new Error(data?.message || `HTTP ${res.status}`);
       }
 
-      const results = Array.isArray(data?.results) ? data.results : [];
-      const okCount = results.filter((item: any) => item?.ok).length;
-      const failCount = results.length - okCount;
-      const lines = results.map((item: any) =>
-        item?.ok
-          ? `${item.server} (${item.database}): OK`
-          : `${item.server} (${item.database}): ${item.error || "Gagal"}`
-      );
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finalResults: SyncKasirResult[] = [];
+      const applyEvent = (event: any) => {
+        if (event?.type === "start") {
+          setSyncTotal(Number(event.total) || 4);
+        }
+        if (event?.type === "kasir_start") {
+          setSyncProgress((current) => {
+            const next = current.filter((item) => item.database !== event.database);
+            return [...next, { server: event.server, database: event.database, ok: false, state: "running" }];
+          });
+        }
+        if (event?.type === "kasir_complete") {
+          const result = {
+            server: event.server,
+            database: event.database,
+            ok: Boolean(event.ok),
+            error: event.error,
+            state: event.ok ? "success" : "failed",
+          } as SyncKasirResult;
+          setSyncProgress((current) => [...current.filter((item) => item.database !== result.database), result]);
+          setSyncCompleted((current) => Math.max(current, Number(event.index) || current + 1));
+        }
+        if (event?.type === "complete") {
+          finalResults = Array.isArray(event.results) ? event.results : [];
+          setSyncProgress(finalResults.map((item) => ({ ...item, state: item.ok ? "success" : "failed" })));
+          setSyncCompleted(finalResults.length);
+          setSyncFinished(true);
+        }
+        if (event?.type === "error") {
+          throw new Error(event.message || "Gagal sync ke kasir");
+        }
+      };
 
-      await Swal.fire({
-        icon: failCount > 0 ? "warning" : "success",
-        title: "Sync selesai",
-        html: `
-          <div style="text-align:left;font-size:14px;line-height:1.5">
-            <div>Berhasil: ${okCount}</div>
-            <div>Gagal: ${failCount}</div>
-            <pre style="white-space:pre-wrap;margin-top:12px;font-size:12px;background:#f8fafc;padding:12px;border-radius:12px;max-height:260px;overflow:auto">${lines.join("\n")}</pre>
-          </div>
-        `,
-      });
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        lines.filter(Boolean).forEach((line) => applyEvent(JSON.parse(line)));
+        if (done) break;
+      }
+
+      if (!finalResults.length && buffer.trim()) applyEvent(JSON.parse(buffer));
     } catch (err) {
-      await Swal.fire("Gagal sync ke kasir", String(err), "error");
+      setSyncError(String(err));
+      setSyncFinished(true);
     } finally {
       setSyncingId(null);
+    }
+  };
+
+  const handleUploadPromoImage = async (row: any, file: File) => {
+    const kode = String(row?.kode_t_promosi || "").trim();
+    if (!kode || !file) return;
+    setUploadingImageId(kode);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("updated_by", getUsername());
+      const res = await fetch(`${API_BASE}/promos/${encodeURIComponent(kode)}/banner-image`, {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
+      setPromoRows((current) => current.map((item) => (
+        item.kode_t_promosi === kode ? { ...item, banner_url: data.banner_url } : item
+      )));
+      setImagePreview((current) => current && current.kode === kode ? { ...current, url: data.banner_url } : current);
+      await Swal.fire("Berhasil", "Gambar promo berhasil di-upload.", "success");
+    } catch (err) {
+      await Swal.fire("Gagal upload gambar", String(err), "error");
+    } finally {
+      setUploadingImageId(null);
     }
   };
 
@@ -1181,6 +1261,7 @@ export default function PromoRefraksiPage() {
                             Nama Promo {renderSortIcon("nama_promosi")}
                           </button>
                         </th>
+                        <th className="px-4 py-3 text-left">Gambar Promo</th>
                         <th className="px-4 py-3 text-left">
                           <button type="button" className="inline-flex items-center" onClick={() => toggleSort("valid_from")}>
                             Periode {renderSortIcon("valid_from")}
@@ -1231,6 +1312,50 @@ export default function PromoRefraksiPage() {
                           <td className="px-4 py-3">
                             <div className="font-medium text-gray-900">{row.nama_promosi || "-"}</div>
                             <div className="text-xs text-gray-500">{row.deskripsi || "-"}</div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              {row.banner_url ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => setImagePreview({
+                                      url: row.banner_url,
+                                      name: String(row.nama_promosi || row.kode_t_promosi),
+                                      kode: String(row.kode_t_promosi),
+                                    })}
+                                    className="h-12 w-20 overflow-hidden rounded-lg bg-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/40"
+                                    title="Klik untuk preview gambar"
+                                  >
+                                    <img
+                                      src={row.banner_url}
+                                      alt={`Gambar ${row.nama_promosi || row.kode_t_promosi}`}
+                                      loading="lazy"
+                                      className="block h-12 w-20 rounded-lg border border-gray-200 object-cover transition hover:opacity-80"
+                                      onError={(event) => {
+                                        event.currentTarget.style.display = "none";
+                                      }}
+                                    />
+                                  </button>
+                                </>
+                              ) : (
+                                <label className={`inline-flex cursor-pointer items-center gap-1 rounded-lg border border-cyan-200 bg-cyan-50 px-2 py-1 text-xs font-semibold text-cyan-700 hover:bg-cyan-100 ${uploadingImageId === row.kode_t_promosi ? "pointer-events-none opacity-50" : ""}`}>
+                                  <Upload className="h-3.5 w-3.5" />
+                                  {uploadingImageId === row.kode_t_promosi ? "Upload..." : "Upload"}
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    disabled={uploadingImageId === row.kode_t_promosi}
+                                    onChange={(event) => {
+                                      const file = event.target.files?.[0];
+                                      if (file) void handleUploadPromoImage(row, file);
+                                      event.currentTarget.value = "";
+                                    }}
+                                  />
+                                </label>
+                              )}
+                            </div>
                           </td>
                           <td className="px-4 py-3 text-gray-700">
                             {formatDate(row.valid_from)} - {formatDate(row.valid_to)}
@@ -2149,6 +2274,138 @@ export default function PromoRefraksiPage() {
                   </table>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {syncModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4">
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="border-b border-slate-100 bg-slate-50 px-5 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-700">Sinkronisasi Promo</p>
+                  <h2 className="mt-1 text-lg font-semibold text-slate-900">{syncPromoName}</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {syncFinished ? "Proses selesai. Periksa status setiap kasir di bawah." : "Menjalankan sinkronisasi ke database kasir..."}
+                  </p>
+                </div>
+                {!syncFinished && <LoaderCircle className="h-5 w-5 animate-spin text-cyan-600" />}
+              </div>
+              <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-200">
+                <div
+                  className="h-full rounded-full bg-cyan-600 transition-all duration-500"
+                  style={{ width: `${Math.min(100, (syncCompleted / Math.max(1, syncTotal)) * 100)}%` }}
+                />
+              </div>
+              <p className="mt-2 text-right text-xs font-medium text-slate-500">
+                {syncCompleted} dari {syncTotal} kasir selesai
+              </p>
+            </div>
+
+            <div className="space-y-3 px-5 py-5">
+              {syncProgress.length === 0 ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-5 text-center text-sm text-slate-500">
+                  Menyiapkan data promo...
+                </div>
+              ) : (
+                syncProgress.map((item) => {
+                  const isRunning = item.state === "running";
+                  const isSuccess = item.state === "success";
+                  return (
+                    <div key={item.database} className="rounded-xl border border-slate-200 px-4 py-3">
+                      <div className="flex items-start gap-3">
+                        {isRunning ? (
+                          <LoaderCircle className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-cyan-600" />
+                        ) : (
+                          <span
+                            className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                              isSuccess ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
+                            }`}
+                          >
+                            {isSuccess ? "✓" : "!"}
+                          </span>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="font-semibold text-slate-800">{item.server}</p>
+                            <span
+                              className={`text-xs font-semibold ${
+                                isRunning ? "text-cyan-700" : isSuccess ? "text-emerald-700" : "text-rose-700"
+                              }`}
+                            >
+                              {isRunning ? "Sedang diproses..." : isSuccess ? "Berhasil" : "Gagal"}
+                            </span>
+                          </div>
+                          <p className="mt-0.5 break-all text-xs text-slate-500">{item.database}</p>
+                          {!isRunning && !isSuccess && item.error && (
+                            <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-xs leading-relaxed text-rose-700">{item.error}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+
+              {syncError && <div className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{syncError}</div>}
+              {syncFinished && !syncError && (
+                <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  {syncProgress.filter((item) => item.ok).length} berhasil, {syncProgress.filter((item) => !item.ok).length} gagal.
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end border-t border-slate-100 px-5 py-4">
+              <button
+                type="button"
+                disabled={!syncFinished}
+                onClick={() => setSyncModalOpen(false)}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {imagePreview && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/70 p-4">
+          <div className="w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-700">Preview Gambar Promo</p>
+                <h2 className="mt-1 text-lg font-semibold text-slate-900">{imagePreview.name}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setImagePreview(null)}
+                className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Tutup
+              </button>
+            </div>
+            <div className="bg-slate-950 p-4">
+              <img src={imagePreview.url} alt={`Preview ${imagePreview.name}`} className="mx-auto max-h-[65vh] max-w-full rounded-lg object-contain" />
+            </div>
+            <div className="flex justify-end border-t border-slate-100 px-5 py-4">
+              <label className={`inline-flex cursor-pointer items-center gap-2 rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-800 ${uploadingImageId === imagePreview.kode ? "pointer-events-none opacity-50" : ""}`}>
+                <Upload className="h-4 w-4" />
+                {uploadingImageId === imagePreview.kode ? "Mengupload..." : "Ganti Image"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={uploadingImageId === imagePreview.kode}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void handleUploadPromoImage({ kode_t_promosi: imagePreview.kode, nama_promosi: imagePreview.name }, file);
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </label>
             </div>
           </div>
         </div>

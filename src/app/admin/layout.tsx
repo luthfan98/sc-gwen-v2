@@ -121,6 +121,7 @@ const navGroups: NavGroup[] = [
     children: [
       { label: "Master Kelas Harga", href: "/admin/master/kelas-harga", icon: Tags },
       { label: "Master Harga Jual", href: "/admin/master/harga-jual", icon: ReceiptText },
+      { label: "Master Harga Event", href: "/admin/master/harga-event", icon: BadgePercent },
       { label: "Master Channel", href: "/admin/master/channel", icon: Tag },
       { label: "Harga Barang per Kelas", href: "/admin/master/barang-kelas-harga", icon: BadgeDollarSign },
       { label: "Channel Pricing Rule", href: "/admin/master/channel-pricing-rule", icon: BadgePercent },
@@ -187,6 +188,7 @@ const navGroups: NavGroup[] = [
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const isHargaJualPage = pathname === "/admin/master/harga-jual";
   const [mobileOpen, setMobileOpen] = useState(false);
   const [adminName, setAdminName] = useState<string>("Admin");
   const [roleName, setRoleName] = useState<string | null>(null);
@@ -284,7 +286,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }, [pathname, navGroupsForRole]);
 
   useEffect(() => {
-    const shouldCollapse = pathname?.startsWith("/admin/master/harga-jual/new");
+    const shouldCollapse =
+      pathname === "/admin/master/harga-jual" || pathname?.startsWith("/admin/master/harga-jual/new");
     if (shouldCollapse) {
       setSidebarCollapsed(true);
     }
@@ -538,7 +541,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
         )}
 
-        <main className="flex-1 flex flex-col min-h-screen">
+        <main className="flex h-screen min-h-0 min-w-0 flex-1 flex-col">
           {!isLoginPage && headerCollapsed && null}
 
           {!isLoginPage && !headerCollapsed && (
@@ -611,7 +614,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </header>
           )}
 
-          <div className="flex-1">{children}</div>
+          <div className={`min-h-0 min-w-0 flex-1 ${isHargaJualPage ? "flex flex-col overflow-hidden" : ""}`}>{children}</div>
         </main>
       </div>
     </div>
