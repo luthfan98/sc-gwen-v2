@@ -5,6 +5,7 @@ module.exports = {
       cwd: "C:/Users/SERVER GWEN/Downloads/kosmetik-store/kosmetik-store/BACKEND",
       script: "src/server.js",
       interpreter: "node",
+      node_args: "--no-deprecation",
       env: {
         NODE_ENV: "production",
         HOST: "0.0.0.0",
@@ -18,6 +19,7 @@ module.exports = {
       cwd: "C:/Users/SERVER GWEN/Downloads/kosmetik-store/kosmetik-store",
       script: "server-https.cjs",
       interpreter: "node",
+      node_args: "--no-deprecation",
       env: {
         NODE_ENV: "production",
         HOST: "0.0.0.0",

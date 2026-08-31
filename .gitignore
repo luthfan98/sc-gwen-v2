@@ -70,3 +70,5 @@ certificates
 /public/**/*.gif
 /public/**/*.svg
 /public/**/*.mp4
+!/public/logo_gwen.png
+!/public/logo_gwen_sq_500.png
