@@ -68,6 +68,16 @@ type EventPriceDraft = {
   harga_12: string;
 };
 
+type SelectedHargaJualRow = {
+  kode_barang_variant?: string;
+  nama_barang?: string;
+  nama_varian?: string;
+  kode_varian?: string;
+  barcode_varian?: string;
+  harga?: Record<string, any>;
+  [key: string]: any;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 const API_URL = `${API_BASE}/barang-harga-jual`;
 const API_HISTORY = `${API_BASE}/barang-harga-jual/history`;
@@ -125,6 +135,7 @@ export default function MasterHargaJualPage() {
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [printLayout, setPrintLayout] = useState<"single" | "double">("single");
   const [selectedVariants, setSelectedVariants] = useState<Set<string>>(new Set());
+  const [selectedRowsByVariant, setSelectedRowsByVariant] = useState<Record<string, SelectedHargaJualRow>>({});
   const [eventModalOpen, setEventModalOpen] = useState(false);
   const [eventName, setEventName] = useState("");
   const [eventStart, setEventStart] = useState("");
@@ -603,19 +614,38 @@ export default function MasterHargaJualPage() {
   };
 
   const normalizeKey = (value: unknown) => String(value ?? "").trim();
+  const selectedRows = useMemo(() => Object.values(selectedRowsByVariant), [selectedRowsByVariant]);
+  const selectedCount = selectedRows.length;
 
   const toggleAllSelected = (checked: boolean) => {
-    if (!checked) {
-      setSelectedVariants(new Set());
-      return;
-    }
-    setSelectedVariants(new Set(pagedRows.map((row) => normalizeKey(row.kode_barang_variant))));
-  };
+    const visibleRows = pagedRows
+      .map((row) => ({ key: normalizeKey(row.kode_barang_variant), row }))
+      .filter((item) => item.key);
 
-  const toggleSelected = (kode: string, checked: boolean) => {
     setSelectedVariants((prev) => {
       const next = new Set(prev);
-      const key = normalizeKey(kode);
+      visibleRows.forEach(({ key }) => {
+        if (checked) next.add(key);
+        else next.delete(key);
+      });
+      return next;
+    });
+
+    setSelectedRowsByVariant((prev) => {
+      const next = { ...prev };
+      visibleRows.forEach(({ key, row }) => {
+        if (checked) next[key] = row;
+        else delete next[key];
+      });
+      return next;
+    });
+  };
+
+  const toggleSelected = (row: SelectedHargaJualRow, checked: boolean) => {
+    const key = normalizeKey(row.kode_barang_variant);
+    if (!key) return;
+    setSelectedVariants((prev) => {
+      const next = new Set(prev);
       if (checked) {
         next.add(key);
       } else {
@@ -623,12 +653,17 @@ export default function MasterHargaJualPage() {
       }
       return next;
     });
+    setSelectedRowsByVariant((prev) => {
+      const next = { ...prev };
+      if (checked) next[key] = row;
+      else delete next[key];
+      return next;
+    });
   };
 
   const openHargaEventModal = () => {
     const drafts: Record<string, EventPriceDraft> = {};
-    displayedRows
-      .filter((row) => selectedVariants.has(normalizeKey(row.kode_barang_variant)))
+    selectedRows
       .forEach((row) => {
         const harga = row.harga?.OFFLINE;
         const key = normalizeKey(row.kode_barang_variant);
@@ -782,7 +817,6 @@ export default function MasterHargaJualPage() {
     : 0;
 
   const handleCreateHargaEvent = async () => {
-    const selectedRows = displayedRows.filter((row) => selectedVariants.has(normalizeKey(row.kode_barang_variant)));
     if (!eventName.trim() || !eventStart || !eventEnd || !selectedRows.length) {
       Swal.fire({ icon: "warning", title: "Data event belum lengkap", text: "Isi nama, periode, dan pilih minimal satu barang." });
       return;
@@ -838,6 +872,7 @@ export default function MasterHargaJualPage() {
       }
       setEventModalOpen(false);
       setSelectedVariants(new Set());
+      setSelectedRowsByVariant({});
       await Swal.fire("Harga event dibuat", `${eventItems.length} barang dijadwalkan. SQL Agent akan mengaktifkan otomatis sesuai periode.`, "success");
     } catch (err) {
       Swal.fire("Gagal membuat harga event", String(err), "error");
@@ -847,7 +882,6 @@ export default function MasterHargaJualPage() {
   };
 
   const handlePrintPriceTag = (layout: "single" | "double") => {
-    const selectedRows = displayedRows.filter((row) => selectedVariants.has(normalizeKey(row.kode_barang_variant)));
     if (!selectedRows.length) {
       Swal.fire({ icon: "warning", title: "Pilih item dulu", text: "Checklist item yang ingin dicetak." });
       return;
@@ -1303,8 +1337,27 @@ export default function MasterHargaJualPage() {
     setPage(1);
   }, [search, kelasFilter, statusFilter, merkFilter, showHetBelowOfflineOnly, showHargaBelowBuyOnly, pageSize]);
 
+  useEffect(() => {
+    if (!pagedRows.length || !selectedVariants.size) return;
+    setSelectedRowsByVariant((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      pagedRows.forEach((row) => {
+        const key = normalizeKey(row.kode_barang_variant);
+        if (key && selectedVariants.has(key)) {
+          next[key] = row;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [pagedRows, selectedVariants]);
+
   const handleOpenPrintModal = () => {
-    const selectedRows = displayedRows.filter((row) => selectedVariants.has(normalizeKey(row.kode_barang_variant)));
+    if (!selectedRows.length) {
+      Swal.fire({ icon: "warning", title: "Pilih item dulu", text: "Checklist item yang ingin dicetak." });
+      return;
+    }
     const hasYellow = selectedRows.some((row) => isHetBelowOffline(row));
     if (hasYellow) {
       Swal.fire({
@@ -1582,10 +1635,10 @@ export default function MasterHargaJualPage() {
                 setEventEnd(toLocalInput(end));
                 openHargaEventModal();
               }}
-              disabled={!selectedVariants.size}
+              disabled={!selectedCount}
               className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 font-semibold shadow-sm hover:bg-amber-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Harga Event ({selectedVariants.size})
+              Harga Event ({selectedCount})
             </button>
           )}
           {canLiveEdit && activeHargaEvents.length > 0 && (
@@ -1725,8 +1778,11 @@ export default function MasterHargaJualPage() {
         </div>
 
         <div className="px-4 pb-3 flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600">
-          <div>
+          <div className="flex flex-wrap items-center gap-2">
             Menampilkan {rangeStart} - {rangeEnd} dari {totalItems} item
+            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+              Aktif terceklist: {selectedCount} item
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <span>Per halaman</span>
@@ -1969,7 +2025,7 @@ export default function MasterHargaJualPage() {
                       <input
                         type="checkbox"
                         checked={selectedVariants.has(normalizeKey(row.kode_barang_variant))}
-                        onChange={(e) => toggleSelected(row.kode_barang_variant, e.target.checked)}
+                        onChange={(e) => toggleSelected(row, e.target.checked)}
                       />
                     </td>
                     <td
@@ -2460,6 +2516,9 @@ export default function MasterHargaJualPage() {
               </button>
             </div>
             <div className="mt-4 space-y-3">
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">
+                {selectedCount} item terceklist untuk dicetak
+              </div>
               <label className="flex items-center gap-2 text-sm text-gray-700">
                 <input
                   type="radio"
@@ -2588,7 +2647,7 @@ export default function MasterHargaJualPage() {
                     <p className="text-sm font-semibold text-gray-800">Harga event per item</p>
                     <p className="text-xs text-gray-600">Isi nominal berbeda untuk tiap item. Harga normal ditampilkan sebagai referensi.</p>
                   </div>
-                  <span className="text-xs font-semibold text-amber-800">{selectedVariants.size} item dipilih</span>
+                  <span className="text-xs font-semibold text-amber-800">{selectedCount} item dipilih</span>
                 </div>
                 <div className="max-h-64 overflow-auto rounded-lg border border-amber-100 bg-white">
                   <table className="min-w-[760px] w-full text-xs">
@@ -2602,8 +2661,7 @@ export default function MasterHargaJualPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {displayedRows
-                        .filter((row) => selectedVariants.has(normalizeKey(row.kode_barang_variant)))
+                      {selectedRows
                         .map((row) => {
                           const key = normalizeKey(row.kode_barang_variant);
                           const harga = row.harga?.OFFLINE;
