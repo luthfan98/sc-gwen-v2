@@ -78,6 +78,19 @@ type SelectedHargaJualRow = {
   [key: string]: any;
 };
 
+type EventImportPreviewRow = {
+  no: string;
+  barcode: string;
+  nama_varian_excel: string;
+  harga_1: string;
+  harga_3: string;
+  harga_6: string;
+  harga_12: string;
+  status: "valid" | "error";
+  message: string;
+  matchedRow?: SelectedHargaJualRow;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 const API_URL = `${API_BASE}/barang-harga-jual`;
 const API_HISTORY = `${API_BASE}/barang-harga-jual/history`;
@@ -142,6 +155,17 @@ export default function MasterHargaJualPage() {
   const [eventEnd, setEventEnd] = useState("");
   const [eventPriceDrafts, setEventPriceDrafts] = useState<Record<string, EventPriceDraft>>({});
   const [eventSaving, setEventSaving] = useState(false);
+  const [eventImportRows, setEventImportRows] = useState<EventImportPreviewRow[]>([]);
+  const [eventImportLoading, setEventImportLoading] = useState(false);
+  const [eventImportFileName, setEventImportFileName] = useState("");
+  const [eventImportProgress, setEventImportProgress] = useState({ processed: 0, total: 0 });
+  const [eventSaveProgress, setEventSaveProgress] = useState({
+    processed: 0,
+    total: 0,
+    percent: 0,
+    currentItem: "",
+    message: "",
+  });
   const [restoringEvent, setRestoringEvent] = useState(false);
   const [restoreEventModalOpen, setRestoreEventModalOpen] = useState(false);
   const [kasirSyncModalOpen, setKasirSyncModalOpen] = useState(false);
@@ -614,8 +638,68 @@ export default function MasterHargaJualPage() {
   };
 
   const normalizeKey = (value: unknown) => String(value ?? "").trim();
+  const groupHargaRows = useCallback((sourceItems: HargaJual[]) => {
+    const map = new Map<
+      string,
+      SelectedHargaJualRow & {
+        harga: Record<string, { id_kelas_harga: number; isActive: number; h1: number; h3: number; h6: number; h12: number }>;
+      }
+    >();
+
+    sourceItems.forEach((it) => {
+      const key = String(it.kode_barang_variant || it.kode_varian || it.id);
+      if (!map.has(key)) {
+        map.set(key, {
+          kode_barang_variant: key,
+          nama_barang: it.nama_barang,
+          kode_barang: it.kode_barang,
+          nama_varian: it.nama_varian,
+          kode_varian: it.kode_varian,
+          barcode_varian: it.barcode_varian,
+          kode_merk: it.kode_merk,
+          nama_merk: it.nama_merk,
+          harga_beli: it.harga_beli_sat_1,
+          het: it.het_sat_1,
+          hpp: it.hpp_avg_sat_1,
+          stok_gudang: it.stok_gudang ?? 0,
+          stok_toko: it.stok_toko ?? 0,
+          status_barang: it.status_barang,
+          status_varian: it.status_varian,
+          harga: {},
+        });
+      }
+      const entry = map.get(key)!;
+      const channel = it.channel_code || "N/A";
+      entry.harga[channel] = {
+        id_kelas_harga: it.id_kelas_harga,
+        isActive: Number(it.is_active ?? 0),
+        h1: it.harga_1,
+        h3: it.harga_3,
+        h6: it.harga_6,
+        h12: it.harga_12,
+      };
+      if (channel === "OFFLINE") {
+        entry.status_pengajuan = it.last_request_status ?? entry.status_pengajuan ?? null;
+      } else if (entry.status_pengajuan === undefined) {
+        entry.status_pengajuan = it.last_request_status ?? null;
+      }
+      if (!entry.barcode_varian && it.barcode_varian) {
+        entry.barcode_varian = it.barcode_varian;
+      }
+      entry.status_barang = entry.status_barang === 1 && it.status_barang === 1 ? 1 : it.status_barang ?? entry.status_barang;
+      entry.status_varian = entry.status_varian === 1 && it.status_varian === 1 ? 1 : it.status_varian ?? entry.status_varian;
+    });
+
+    return Array.from(map.values());
+  }, []);
   const selectedRows = useMemo(() => Object.values(selectedRowsByVariant), [selectedRowsByVariant]);
   const selectedCount = selectedRows.length;
+  const eventImportValidCount = eventImportRows.filter((row) => row.status === "valid").length;
+  const eventImportErrorCount = eventImportRows.filter((row) => row.status === "error").length;
+  const eventImportNotFoundRows = eventImportRows.filter((row) => row.message.toLowerCase().includes("tidak ditemukan"));
+  const eventImportProgressPercent = eventImportProgress.total
+    ? Math.round((eventImportProgress.processed / eventImportProgress.total) * 100)
+    : 0;
 
   const toggleAllSelected = (checked: boolean) => {
     const visibleRows = pagedRows
@@ -663,6 +747,10 @@ export default function MasterHargaJualPage() {
 
   const openHargaEventModal = () => {
     const drafts: Record<string, EventPriceDraft> = {};
+    setEventImportRows([]);
+    setEventImportFileName("");
+    setEventImportProgress({ processed: 0, total: 0 });
+    setEventSaveProgress({ processed: 0, total: 0, percent: 0, currentItem: "", message: "" });
     selectedRows
       .forEach((row) => {
         const harga = row.harga?.OFFLINE;
@@ -676,6 +764,221 @@ export default function MasterHargaJualPage() {
       });
     setEventPriceDrafts(drafts);
     setEventModalOpen(true);
+  };
+
+  const parseEventImportPrice = (value: unknown) => {
+    if (typeof value === "number") {
+      if (!Number.isFinite(value) || value < 0) return null;
+      return Math.round(value > 0 && value < 1000 ? value * 1000 : value);
+    }
+    const raw = String(value ?? "").trim();
+    if (!raw) return null;
+    const normalized = raw.replace(/rp/gi, "").replace(/\s/g, "");
+    let numericText = normalized;
+    const hasComma = normalized.includes(",");
+    const hasDot = normalized.includes(".");
+    if (hasComma && hasDot) {
+      numericText = normalized.lastIndexOf(",") > normalized.lastIndexOf(".")
+        ? normalized.replace(/\./g, "").replace(",", ".")
+        : normalized.replace(/,/g, "");
+    } else if (hasComma) {
+      numericText = normalized.replace(/\./g, "").replace(",", ".");
+    } else if (hasDot) {
+      const parts = normalized.split(".");
+      numericText = parts.at(-1)?.length === 3 ? normalized.replace(/\./g, "") : normalized;
+    }
+    const parsed = Number(numericText.replace(/[^\d.-]/g, ""));
+    if (!Number.isFinite(parsed) || parsed < 0) return null;
+    return Math.round(parsed > 0 && parsed < 1000 ? parsed * 1000 : parsed);
+  };
+
+  const normalizeExcelHeader = (value: unknown) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  const pickExcelCell = (row: unknown[], headerMap: Record<string, number>, names: string[], fallbackIndex: number) => {
+    const index = names.map((name) => headerMap[name]).find((idx) => idx !== undefined);
+    return row[index ?? fallbackIndex];
+  };
+
+  const fetchHargaRowByBarcode = async (barcode: string) => {
+    const params = new URLSearchParams({
+      channel_code: "OFFLINE",
+      status: "aktif",
+      search: barcode,
+      page: "1",
+      page_size: "20",
+    });
+    const res = await fetch(`${API_URL}?${params.toString()}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const rows = (Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []) as HargaJual[];
+    const exactRows = rows.filter((row) => normalizeKey(row.barcode_varian) === barcode);
+    const groupedRows = groupHargaRows(exactRows.length ? exactRows : rows);
+    return groupedRows.find((row) => normalizeKey(row.barcode_varian) === barcode) || null;
+  };
+
+  const handleImportHargaEventExcel = async (file: File) => {
+    setEventImportLoading(true);
+    setEventImportFileName(file.name);
+    setEventImportRows([]);
+    setEventImportProgress({ processed: 0, total: 0 });
+    try {
+      const XLSXModule = await import("xlsx");
+      const XLSX = (XLSXModule as any).default ?? XLSXModule;
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: "array" });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const sheetRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "", raw: false }) as unknown[][];
+      const nonEmptyRows = sheetRows.filter((row) => row.some((cell) => String(cell ?? "").trim()));
+      if (nonEmptyRows.length < 2) {
+        setEventImportRows([]);
+        Swal.fire({ icon: "warning", title: "Excel kosong", text: "Pastikan file berisi header dan minimal satu baris data." });
+        return;
+      }
+
+      const headerRow = nonEmptyRows[0];
+      const headerMap = headerRow.reduce<Record<string, number>>((acc, cell, index) => {
+        const key = normalizeExcelHeader(cell);
+        if (key) acc[key] = index;
+        return acc;
+      }, {});
+      const barcodeHeaders = ["barcode", "barcodevarian", "kodebarcode"];
+      const priceHeaders = {
+        harga_1: ["harga1pcs", "harga1pc", "harga1", "1pcs", "1pc"],
+        harga_3: ["harga3pcs", "harga3pc", "harga3", "3pcs", "3pc"],
+        harga_6: ["harga6pcs", "harga6pc", "harga6", "6pcs", "6pc"],
+        harga_12: ["harga12pcs", "harga12pc", "harga12", "12pcs", "12pc"],
+      };
+
+      const parsedRows = nonEmptyRows.slice(1).map((row, index) => {
+        const barcode = normalizeKey(pickExcelCell(row, headerMap, barcodeHeaders, 1));
+        const namaVarianExcel = normalizeKey(pickExcelCell(row, headerMap, ["namavarian", "varian", "namaitem", "item"], 2));
+        const harga1 = parseEventImportPrice(pickExcelCell(row, headerMap, priceHeaders.harga_1, 3));
+        const harga3 = parseEventImportPrice(pickExcelCell(row, headerMap, priceHeaders.harga_3, 4));
+        const harga6 = parseEventImportPrice(pickExcelCell(row, headerMap, priceHeaders.harga_6, 5));
+        const harga12 = parseEventImportPrice(pickExcelCell(row, headerMap, priceHeaders.harga_12, 6));
+        return {
+          no: String(pickExcelCell(row, headerMap, ["no", "nomor"], 0) || index + 1),
+          barcode,
+          nama_varian_excel: namaVarianExcel,
+          harga_1: harga1 == null ? "" : String(harga1),
+          harga_3: harga3 == null ? "" : String(harga3),
+          harga_6: harga6 == null ? "" : String(harga6),
+          harga_12: harga12 == null ? "" : String(harga12),
+          invalidPrice: harga1 == null,
+        };
+      }).filter((row) => row.barcode || row.nama_varian_excel || row.harga_1 || row.harga_3 || row.harga_6 || row.harga_12);
+
+      const previewRows: EventImportPreviewRow[] = [];
+      const seenBarcode = new Set<string>();
+      setEventImportProgress({ processed: 0, total: parsedRows.length });
+      for (const row of parsedRows) {
+        if (!row.barcode) {
+          previewRows.push({ ...row, status: "error", message: "Barcode kosong" });
+          setEventImportProgress((prev) => ({ ...prev, processed: prev.processed + 1 }));
+          continue;
+        }
+        if (seenBarcode.has(row.barcode)) {
+          previewRows.push({ ...row, status: "error", message: "Barcode duplikat di Excel" });
+          setEventImportProgress((prev) => ({ ...prev, processed: prev.processed + 1 }));
+          continue;
+        }
+        seenBarcode.add(row.barcode);
+        if (row.invalidPrice) {
+          previewRows.push({ ...row, status: "error", message: "Harga 1 PCS wajib angka" });
+          setEventImportProgress((prev) => ({ ...prev, processed: prev.processed + 1 }));
+          continue;
+        }
+        try {
+          const matchedRow = await fetchHargaRowByBarcode(row.barcode);
+          if (!matchedRow?.harga?.OFFLINE?.id_kelas_harga) {
+            previewRows.push({ ...row, status: "error", message: "Barcode tidak ditemukan di harga OFFLINE" });
+            setEventImportProgress((prev) => ({ ...prev, processed: prev.processed + 1 }));
+            continue;
+          }
+          previewRows.push({ ...row, status: "valid", message: "Siap diterapkan", matchedRow });
+        } catch (err) {
+          previewRows.push({ ...row, status: "error", message: err instanceof Error ? err.message : "Gagal cek barcode" });
+        }
+        setEventImportProgress((prev) => ({ ...prev, processed: prev.processed + 1 }));
+      }
+      setEventImportRows(previewRows);
+    } catch (err) {
+      console.error("Failed import harga event excel", err);
+      Swal.fire({ icon: "error", title: "Gagal membaca Excel", text: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setEventImportLoading(false);
+    }
+  };
+
+  const handleApplyHargaEventImport = () => {
+    const validRows = eventImportRows.filter((row) => row.status === "valid" && row.matchedRow);
+    if (!validRows.length) {
+      Swal.fire({ icon: "warning", title: "Tidak ada data valid", text: "Upload Excel dan pastikan minimal satu barcode valid." });
+      return;
+    }
+    setSelectedVariants((prev) => {
+      const next = new Set(prev);
+      validRows.forEach((row) => {
+        const key = normalizeKey(row.matchedRow?.kode_barang_variant);
+        if (key) next.add(key);
+      });
+      return next;
+    });
+    setSelectedRowsByVariant((prev) => {
+      const next = { ...prev };
+      validRows.forEach((row) => {
+        const key = normalizeKey(row.matchedRow?.kode_barang_variant);
+        if (key && row.matchedRow) next[key] = row.matchedRow;
+      });
+      return next;
+    });
+    setEventPriceDrafts((prev) => {
+      const next = { ...prev };
+      validRows.forEach((row) => {
+        const key = normalizeKey(row.matchedRow?.kode_barang_variant);
+        if (!key) return;
+        next[key] = {
+          harga_1: row.harga_1,
+          harga_3: row.harga_3,
+          harga_6: row.harga_6,
+          harga_12: row.harga_12,
+        };
+      });
+      return next;
+    });
+    setEventImportRows([]);
+    setEventImportFileName("");
+    setEventImportProgress({ processed: 0, total: 0 });
+    Swal.fire({
+      icon: "success",
+      title: "Preview diterapkan",
+      text: `${validRows.length} item masuk ke draft harga event.`,
+      timer: 1400,
+      showConfirmButton: false,
+    });
+  };
+
+  const handleApplyCurrentPriceToEventDraft = (field: keyof EventPriceDraft, normalField: "h3" | "h6" | "h12") => {
+    if (!selectedRows.length) {
+      Swal.fire({ icon: "warning", title: "Belum ada item", text: "Pilih item atau import Excel dulu." });
+      return;
+    }
+    setEventPriceDrafts((prev) => {
+      const next = { ...prev };
+      selectedRows.forEach((row) => {
+        const key = normalizeKey(row.kode_barang_variant);
+        if (!key) return;
+        const hargaNormal = row.harga?.OFFLINE?.[normalField];
+        next[key] = {
+          harga_1: next[key]?.harga_1 ?? "",
+          harga_3: next[key]?.harga_3 ?? "",
+          harga_6: next[key]?.harga_6 ?? "",
+          harga_12: next[key]?.harga_12 ?? "",
+          [field]: hargaNormal == null ? "" : String(Math.round(Number(hargaNormal))),
+        };
+      });
+      return next;
+    });
   };
 
   const handleRestoreHargaNormal = async (event: any) => {
@@ -851,8 +1154,15 @@ export default function MasterHargaJualPage() {
       return;
     }
     setEventSaving(true);
+    setEventSaveProgress({
+      processed: 0,
+      total: eventItems.length,
+      percent: 0,
+      currentItem: "",
+      message: "Menyiapkan data event",
+    });
     try {
-      const res = await fetch(`${API_URL}/events`, {
+      const res = await fetch(`${API_URL}/events?progress=1`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -863,8 +1173,59 @@ export default function MasterHargaJualPage() {
           created_by: localStorage.getItem("username") || "Admin",
         }),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.message || `HTTP ${res.status}`);
+      }
+      if (!res.body) throw new Error("Server tidak mengirim progress simpan");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let savedTotal = eventItems.length;
+      let savedCount = 0;
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const event = JSON.parse(line) as {
+            type?: string;
+            message?: string;
+            processed?: number;
+            total?: number;
+            current_item?: string;
+            kode_t_harga_event?: string;
+            total_item?: number;
+          };
+          if (event.type === "error") {
+            throw new Error(event.message || "Gagal membuat harga event");
+          }
+          if (event.type === "start" || event.type === "progress" || event.type === "commit" || event.type === "complete") {
+            savedTotal = event.total || savedTotal;
+            savedCount = event.processed ?? savedCount;
+            const percent = savedTotal ? Math.min(100, Math.round((savedCount / savedTotal) * 100)) : 0;
+            setEventSaveProgress({
+              processed: savedCount,
+              total: savedTotal,
+              percent: event.type === "complete" ? 100 : percent,
+              currentItem: event.current_item || "",
+              message: event.message || (event.type === "complete" ? "Selesai" : "Menyimpan data event"),
+            });
+          }
+        }
+        if (done) break;
+      }
+      if (buffer.trim()) {
+        const event = JSON.parse(buffer) as { type?: string; message?: string; processed?: number; total?: number; total_item?: number };
+        if (event.type === "error") throw new Error(event.message || "Gagal membuat harga event");
+        if (event.type === "complete") {
+          savedTotal = event.total || savedTotal;
+          savedCount = event.processed ?? savedCount;
+          setEventSaveProgress((prev) => ({ ...prev, processed: savedCount, total: savedTotal, percent: 100, message: "Selesai" }));
+        }
+      }
       const eventsRes = await fetch(`${API_URL}/events`);
       if (eventsRes.ok) {
         const eventsData = await eventsRes.json();
@@ -1150,75 +1511,8 @@ export default function MasterHargaJualPage() {
   }, [filteredItems]);
 
   const groupedByVarian = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        kode_barang_variant: string;
-        nama_barang?: string;
-        kode_barang?: string;
-        nama_varian?: string;
-        kode_varian?: string;
-        barcode_varian?: string;
-        kode_merk?: string;
-        nama_merk?: string;
-        harga_beli?: number;
-        het?: number;
-        hpp?: number;
-        stok_gudang?: number;
-        stok_toko?: number;
-        status_barang?: number;
-        status_varian?: number;
-        status_pengajuan?: number | null;
-        harga: Record<string, { id_kelas_harga: number; isActive: number; h1: number; h3: number; h6: number; h12: number }>;
-      }
-    >();
-
-    filteredItems.forEach((it) => {
-      const key = String(it.kode_barang_variant || it.kode_varian || it.id);
-      if (!map.has(key)) {
-        map.set(key, {
-          kode_barang_variant: key,
-          nama_barang: it.nama_barang,
-          kode_barang: it.kode_barang,
-          nama_varian: it.nama_varian,
-          kode_varian: it.kode_varian,
-          barcode_varian: it.barcode_varian,
-          kode_merk: it.kode_merk,
-          nama_merk: it.nama_merk,
-          harga_beli: it.harga_beli_sat_1,
-          het: it.het_sat_1,
-          hpp: it.hpp_avg_sat_1,
-          stok_gudang: it.stok_gudang ?? 0,
-          stok_toko: it.stok_toko ?? 0,
-          status_barang: it.status_barang,
-          status_varian: it.status_varian,
-          harga: {},
-        });
-      }
-      const entry = map.get(key)!;
-      const channel = it.channel_code || "N/A";
-      entry.harga[channel] = {
-        id_kelas_harga: it.id_kelas_harga,
-        isActive: Number(it.is_active ?? 0),
-        h1: it.harga_1,
-        h3: it.harga_3,
-        h6: it.harga_6,
-        h12: it.harga_12,
-      };
-      if (channel === "OFFLINE") {
-        entry.status_pengajuan = it.last_request_status ?? entry.status_pengajuan ?? null;
-      } else if (entry.status_pengajuan === undefined) {
-        entry.status_pengajuan = it.last_request_status ?? null;
-      }
-      if (!entry.barcode_varian && it.barcode_varian) {
-        entry.barcode_varian = it.barcode_varian;
-      }
-      entry.status_barang = entry.status_barang === 1 && it.status_barang === 1 ? 1 : it.status_barang ?? entry.status_barang;
-      entry.status_varian = entry.status_varian === 1 && it.status_varian === 1 ? 1 : it.status_varian ?? entry.status_varian;
-    });
-
-    return Array.from(map.values());
-  }, [filteredItems]);
+    return groupHargaRows(filteredItems);
+  }, [filteredItems, groupHargaRows]);
 
   const isHetBelowOffline = (row: {
     het?: number;
@@ -1635,8 +1929,7 @@ export default function MasterHargaJualPage() {
                 setEventEnd(toLocalInput(end));
                 openHargaEventModal();
               }}
-              disabled={!selectedCount}
-              className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 font-semibold shadow-sm hover:bg-amber-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 font-semibold shadow-sm hover:bg-amber-100 transition-all"
             >
               Harga Event ({selectedCount})
             </button>
@@ -1763,7 +2056,7 @@ export default function MasterHargaJualPage() {
               label="Kelas"
               value={kelasFilter}
               onChange={setKelasFilter}
-              options={[{ label: "Semua kelas", value: "semua" }, ...kelasOptions]}
+              options={kelasOptions}
             />
             <div className="min-w-[220px] flex-1 lg:ml-2 lg:border-l lg:border-gray-200 lg:pl-3">
               <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-500">Pencarian</span>
@@ -2641,6 +2934,138 @@ export default function MasterHargaJualPage() {
                   className="rounded-lg border border-gray-200 px-3 py-2 font-normal focus:border-amber-400 focus:outline-none"
                 />
               </label>
+              <div className="sm:col-span-2 rounded-xl border border-sky-100 bg-sky-50/60 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">Import harga event dari Excel</p>
+                    <p className="mt-1 text-xs text-gray-600">
+                      Format kolom: no, barcode, nama varian, harga 1 pcs, 3pcs, 6pcs, 12pcs. Setelah upload, cek preview lalu klik Terapkan ke Draft.
+                    </p>
+                    {eventImportFileName && <p className="mt-1 text-[11px] font-semibold text-sky-700">{eventImportFileName}</p>}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className={`inline-flex cursor-pointer items-center rounded-lg border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-sky-700 shadow-sm hover:bg-sky-50 ${eventImportLoading ? "pointer-events-none opacity-60" : ""}`}>
+                      {eventImportLoading ? "Membaca Excel..." : "Upload Excel"}
+                      <input
+                        type="file"
+                        accept=".xlsx,.xls"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleImportHargaEventExcel(file);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleApplyHargaEventImport}
+                      disabled={eventImportLoading || eventImportValidCount === 0}
+                      className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Terapkan ke Draft ({eventImportValidCount})
+                    </button>
+                  </div>
+                </div>
+                {(eventImportLoading || eventImportProgress.total > 0) && (
+                  <div className="mt-3 rounded-lg border border-sky-100 bg-white px-3 py-2">
+                    <div className="mb-1 flex items-center justify-between text-xs">
+                      <span className="font-semibold text-gray-700">
+                        Memproses Excel: {eventImportProgress.processed} / {eventImportProgress.total} barcode
+                      </span>
+                      <span className="font-bold text-sky-700">{eventImportProgressPercent}%</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-sky-100">
+                      <div
+                        className="h-full rounded-full bg-sky-500 transition-all duration-300"
+                        style={{ width: `${eventImportProgressPercent}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+                {eventImportRows.length > 0 && (
+                  <div className="mt-3 overflow-auto rounded-lg border border-sky-100 bg-white">
+                    <div className="flex flex-wrap items-center gap-2 border-b border-sky-100 px-3 py-2 text-xs">
+                      <span className="font-semibold text-gray-700">Preview import</span>
+                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700">{eventImportValidCount} sukses</span>
+                      <span className="rounded-full bg-rose-50 px-2 py-0.5 font-semibold text-rose-700">{eventImportErrorCount} tidak sukses</span>
+                      <span className="rounded-full bg-amber-50 px-2 py-0.5 font-semibold text-amber-700">{eventImportNotFoundRows.length} tidak ditemukan</span>
+                    </div>
+                    {eventImportNotFoundRows.length > 0 && (
+                      <div className="border-b border-rose-100 bg-rose-50/70 px-3 py-2">
+                        <p className="text-xs font-semibold text-rose-700">Barcode tidak ditemukan</p>
+                        <div className="mt-1 max-h-24 overflow-auto text-[11px] text-rose-700">
+                          {eventImportNotFoundRows.map((row, index) => (
+                            <div key={`not-found-${row.barcode}-${index}`}>
+                              {row.barcode || "-"} - {row.nama_varian_excel || "Nama varian kosong"}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <table className="min-w-[980px] w-full text-xs">
+                      <thead className="bg-sky-50 text-left text-gray-600">
+                        <tr>
+                          <th className="px-2 py-2">No</th>
+                          <th className="px-2 py-2">Barcode</th>
+                          <th className="px-2 py-2">Nama Varian Excel</th>
+                          <th className="px-2 py-2">Item DB</th>
+                          <th className="px-2 py-2 text-right">1 PCS</th>
+                          <th className="px-2 py-2 text-right">3 PCS</th>
+                          <th className="px-2 py-2 text-right">6 PCS</th>
+                          <th className="px-2 py-2 text-right">12 PCS</th>
+                          <th className="px-2 py-2">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {eventImportRows.map((row, index) => (
+                          <tr key={`${row.barcode || "empty"}-${index}`} className={row.status === "valid" ? "bg-white" : "bg-rose-50/60"}>
+                            <td className="px-2 py-2 text-gray-500">{row.no}</td>
+                            <td className="px-2 py-2 font-semibold text-gray-800">{row.barcode || "-"}</td>
+                            <td className="max-w-[220px] px-2 py-2">
+                              <div className="truncate text-gray-700" title={row.nama_varian_excel}>
+                                {row.nama_varian_excel || "-"}
+                              </div>
+                            </td>
+                            <td className="max-w-[240px] px-2 py-2">
+                              <div className="truncate font-semibold text-gray-800" title={row.matchedRow?.nama_varian || row.matchedRow?.nama_barang}>
+                                {row.matchedRow?.nama_varian || row.matchedRow?.nama_barang || "-"}
+                              </div>
+                            </td>
+                            {([
+                              ["harga_1", "h1"],
+                              ["harga_3", "h3"],
+                              ["harga_6", "h6"],
+                              ["harga_12", "h12"],
+                            ] as const).map(([eventField, normalField]) => (
+                              <td key={eventField} className="px-2 py-2 text-right">
+                                {row.status === "valid" ? (
+                                  <div className="leading-tight">
+                                    {row[eventField] ? (
+                                      <>
+                                        <span className="text-gray-500 line-through">{formatRupiah(row.matchedRow?.harga?.OFFLINE?.[normalField])}</span>
+                                        <span className="mx-1 text-gray-400">-&gt;</span>
+                                        <span className="font-semibold text-amber-700">{formatRupiah(Number(row[eventField]))}</span>
+                                      </>
+                                    ) : (
+                                      <span className="font-semibold text-gray-400">null</span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  row[eventField] ? formatRupiah(Number(row[eventField])) : "null"
+                                )}
+                              </td>
+                            ))}
+                            <td className={`px-2 py-2 font-semibold ${row.status === "valid" ? "text-emerald-700" : "text-rose-700"}`}>
+                              {row.message}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
               <div className="sm:col-span-2 rounded-xl border border-amber-100 bg-amber-50/60 p-3">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <div>
@@ -2655,9 +3080,45 @@ export default function MasterHargaJualPage() {
                       <tr>
                         <th className="px-2 py-2">Item</th>
                         <th className="px-2 py-2">1 PCS</th>
-                        <th className="px-2 py-2">3 PCS</th>
-                        <th className="px-2 py-2">6 PCS</th>
-                        <th className="px-2 py-2">12 PCS</th>
+                        <th className="px-2 py-2">
+                          <div className="flex items-center gap-2">
+                            <span>3 PCS</span>
+                            <button
+                              type="button"
+                              onClick={() => handleApplyCurrentPriceToEventDraft("harga_3", "h3")}
+                              className="rounded border border-amber-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 hover:bg-amber-100"
+                              title="Terapkan semua harga 3 PCS saat ini"
+                            >
+                              Pakai saat ini
+                            </button>
+                          </div>
+                        </th>
+                        <th className="px-2 py-2">
+                          <div className="flex items-center gap-2">
+                            <span>6 PCS</span>
+                            <button
+                              type="button"
+                              onClick={() => handleApplyCurrentPriceToEventDraft("harga_6", "h6")}
+                              className="rounded border border-amber-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 hover:bg-amber-100"
+                              title="Terapkan semua harga 6 PCS saat ini"
+                            >
+                              Pakai saat ini
+                            </button>
+                          </div>
+                        </th>
+                        <th className="px-2 py-2">
+                          <div className="flex items-center gap-2">
+                            <span>12 PCS</span>
+                            <button
+                              type="button"
+                              onClick={() => handleApplyCurrentPriceToEventDraft("harga_12", "h12")}
+                              className="rounded border border-amber-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 hover:bg-amber-100"
+                              title="Terapkan semua harga 12 PCS saat ini"
+                            >
+                              Pakai saat ini
+                            </button>
+                          </div>
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
@@ -2694,11 +3155,36 @@ export default function MasterHargaJualPage() {
                 </div>
               </div>
             </div>
+            {eventSaving && (
+              <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="font-semibold text-gray-800">
+                    Menyimpan event: {eventSaveProgress.processed} / {eventSaveProgress.total} item
+                  </span>
+                  <span className="font-bold text-amber-700">{eventSaveProgress.percent}%</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-amber-100">
+                  <div
+                    className="h-full rounded-full bg-amber-500 transition-all duration-300"
+                    style={{ width: `${eventSaveProgress.percent}%` }}
+                  />
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600">
+                  <span>{eventSaveProgress.message || "Menyimpan data event"}</span>
+                  {eventSaveProgress.currentItem && (
+                    <span className="rounded-full bg-white px-2 py-0.5 font-semibold text-gray-700">
+                      {eventSaveProgress.currentItem}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setEventModalOpen(false)}
-                className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                disabled={eventSaving}
+                className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
               >
                 Batal
               </button>

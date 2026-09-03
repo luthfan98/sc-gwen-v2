@@ -80,6 +80,7 @@ export default async function barangKelasHargaRoutes(fastify) {
 
   fastify.post("/events", async (request, reply) => {
     const body = request.body || {};
+    const progressMode = String(request.query?.progress || "") === "1";
     const namaEvent = String(body.nama_event || "").trim();
     const mulai = new Date(body.berlaku_mulai);
     const selesai = new Date(body.berlaku_sampai);
@@ -90,7 +91,18 @@ export default async function barangKelasHargaRoutes(fastify) {
     }
 
     const tx = new sql.Transaction(pool);
+    const writeProgress = (payload) => {
+      if (!progressMode || reply.raw.writableEnded) return;
+      reply.raw.write(`${JSON.stringify(payload)}\n`);
+    };
     try {
+      if (progressMode) {
+        reply.raw.writeHead(200, {
+          "Content-Type": "application/x-ndjson; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          "X-Accel-Buffering": "no",
+        });
+      }
       await tx.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
       const kodeEvent = generateDetailCode("HEV");
       await new sql.Request(tx)
@@ -105,12 +117,19 @@ export default async function barangKelasHargaRoutes(fastify) {
                 VALUES (@kode_t_harga_event, @nama_event, @berlaku_mulai, @berlaku_sampai, 'SCHEDULED', @created_by, @updated_by);`);
 
       const seen = new Set();
+      let processed = 0;
+      writeProgress({ type: "start", total: items.length, processed: 0, message: "Mulai menyimpan harga event" });
       for (const item of items) {
         const variant = String(item.kode_barang_variant || "").trim();
         const classId = Number(item.id_kelas_harga);
         const key = `${variant}:${classId}`;
-        if (!variant || !Number.isInteger(classId) || seen.has(key)) continue;
+        if (!variant || !Number.isInteger(classId) || seen.has(key)) {
+          processed += 1;
+          writeProgress({ type: "progress", total: items.length, processed, current_item: variant || "-", message: "Item dilewati" });
+          continue;
+        }
         seen.add(key);
+        writeProgress({ type: "progress", total: items.length, processed, current_item: variant, message: "Mengecek harga aktif" });
 
         const current = await new sql.Request(tx)
           .input("kode_barang_variant", sql.VarChar(50), variant)
@@ -143,14 +162,27 @@ export default async function barangKelasHargaRoutes(fastify) {
           VALUES (@kode_t_harga_event, @kode_barang_variant, @id_kelas_harga, @kode_mn_harga_jual,
            @harga_normal_1, @harga_normal_3, @harga_normal_6, @harga_normal_12,
            @harga_event_1, @harga_event_3, @harga_event_6, @harga_event_12);`);
+        processed += 1;
+        writeProgress({ type: "progress", total: items.length, processed, current_item: variant, message: "Item tersimpan" });
       }
 
       if (!seen.size) throw new Error("Tidak ada item event yang valid");
+      writeProgress({ type: "commit", total: items.length, processed, message: "Finalisasi transaksi" });
       await tx.commit();
+      if (progressMode) {
+        writeProgress({ type: "complete", kode_t_harga_event: kodeEvent, total_item: seen.size, total: items.length, processed });
+        reply.raw.end();
+        return;
+      }
       return reply.code(201).send({ kode_t_harga_event: kodeEvent, total_item: seen.size });
     } catch (err) {
       await tx.rollback().catch(() => {});
       fastify.log.error({ err }, "Failed to create harga event");
+      if (progressMode) {
+        writeProgress({ type: "error", message: err?.message || "Gagal membuat harga event" });
+        reply.raw.end();
+        return;
+      }
       return reply.code(500).send({ message: err?.message || "Gagal membuat harga event" });
     }
   });
