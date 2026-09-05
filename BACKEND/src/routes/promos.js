@@ -1,8 +1,10 @@
 import crypto from "node:crypto";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { createKasirPool, ensureKasirTargetsTable, getKasirTargets } from "../utils/kasir-targets.js";
 
 export default async function promoRoutes(fastify) {
   const { sql, pool } = fastify.mssql;
+  await ensureKasirTargetsTable({ pool, sql });
   const imageStorage = {
     endpoint: process.env.IMAGE_STORAGE_ENDPOINT || "https://image.gwencosmetic.com",
     publicUrl: (process.env.IMAGE_STORAGE_PUBLIC_URL || "https://image.gwencosmetic.com").replace(/\/+$/, ""),
@@ -22,33 +24,6 @@ export default async function promoRoutes(fastify) {
         },
       })
     : null;
-  const kasirTargets = [
-    { server: "gwenkasir1\\SQLEXPRESS", database: "db_gwen_kasir1" },
-    { server: "gwenkasir2\\SQLEXPRESS", database: "db_gwen_kasir2" },
-    { server: "gwenkasir3\\SQLEXPRESS", database: "db_gwen_kasir3" },
-    { server: "gwenkasir4\\SQLEXPRESS", database: "db_gwen_kasir4" },
-  ];
-
-  const createKasirPool = (target) =>
-    new sql.ConnectionPool({
-      server: target.server,
-      user: "sa",
-      password: "resmi12",
-      database: target.database,
-      requestTimeout: 60000,
-      connectionTimeout: 30000,
-      pool: {
-        max: 2,
-        min: 0,
-        idleTimeoutMillis: 30000,
-      },
-      options: {
-        encrypt: false,
-        trustServerCertificate: true,
-        useUTC: true,
-      },
-    });
-
   const parseDate = (value) => {
     if (!value) return null;
     const dt = new Date(value);
@@ -270,6 +245,7 @@ export default async function promoRoutes(fastify) {
 
     const banners = Array.isArray(payload.banners) ? payload.banners : [];
     for (const banner of banners) {
+      const createdAt = normalizeDateTimeForDb(banner.created_at) || new Date();
       await trx
         .request()
         .input("kode_d_banner", sql.VarChar(50), generateDetailCode("PBN"))
@@ -285,13 +261,14 @@ export default async function promoRoutes(fastify) {
         .input("banner_valid_to", sql.DateTime2, parseDate(banner.banner_valid_to))
         .input("is_active", sql.Bit, banner.is_active === 0 ? 0 : 1)
         .input("created_by", sql.VarChar(100), String(banner.created_by || "Admin"))
+        .input("created_at", sql.DateTime2, createdAt)
         .query(
           `INSERT INTO dbo.GWEN_d_promosi_banner
            (kode_d_banner, kode_t_promosi, is_show_tv, tv_priority, banner_type, banner_url, banner_title,
-            banner_subtitle, banner_cta, banner_valid_from, banner_valid_to, is_active, created_by)
+            banner_subtitle, banner_cta, banner_valid_from, banner_valid_to, is_active, created_by, created_at)
            VALUES (@kode_d_banner, @kode_t_promosi, @is_show_tv, @tv_priority, @banner_type, @banner_url,
                    @banner_title, @banner_subtitle, @banner_cta, @banner_valid_from, @banner_valid_to,
-                   @is_active, @created_by);`
+                   @is_active, @created_by, @created_at);`
         );
     }
   };
@@ -420,6 +397,10 @@ export default async function promoRoutes(fastify) {
   };
 
   const upsertPromoHeaderToTarget = async (trx, header) => {
+    const numberOrZero = (value) => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : 0;
+    };
     const req = trx.request();
     req.input("kode_t_promosi", sql.VarChar(50), header.kode_t_promosi);
     req.input("nama_promosi", sql.VarChar(200), header.nama_promosi);
@@ -432,8 +413,11 @@ export default async function promoRoutes(fastify) {
     req.input("status_aktif", sql.Bit, Number(header.status_aktif) === 1 ? 1 : 0);
     req.input("status_approval", sql.Int, Number(header.status_approval || 0));
     req.input("budget_total", sql.Decimal(18, 2), header.budget_total != null ? Number(header.budget_total) : null);
+    req.input("budget_terpakai", sql.Decimal(18, 2), numberOrZero(header.budget_terpakai));
     req.input("max_total_item", sql.Int, header.max_total_item != null ? Number(header.max_total_item) : null);
+    req.input("total_item_terpakai", sql.Int, numberOrZero(header.total_item_terpakai));
     req.input("max_total_redeem_trx", sql.Int, header.max_total_redeem_trx != null ? Number(header.max_total_redeem_trx) : null);
+    req.input("total_redeem_trx_used", sql.Int, numberOrZero(header.total_redeem_trx_used));
     req.input("redeem_mode", sql.VarChar(10), header.redeem_mode || "ONCE");
     req.input("max_redeem_times_per_trx", sql.Int, header.max_redeem_times_per_trx != null ? Number(header.max_redeem_times_per_trx) : null);
     req.input("max_redeem_per_customer", sql.Int, header.max_redeem_per_customer != null ? Number(header.max_redeem_per_customer) : null);
@@ -470,8 +454,11 @@ export default async function promoRoutes(fastify) {
         .input("status_aktif", sql.Bit, Number(header.status_aktif) === 1 ? 1 : 0)
         .input("status_approval", sql.Int, Number(header.status_approval || 0))
         .input("budget_total", sql.Decimal(18, 2), header.budget_total != null ? Number(header.budget_total) : null)
+        .input("budget_terpakai", sql.Decimal(18, 2), numberOrZero(header.budget_terpakai))
         .input("max_total_item", sql.Int, header.max_total_item != null ? Number(header.max_total_item) : null)
+        .input("total_item_terpakai", sql.Int, numberOrZero(header.total_item_terpakai))
         .input("max_total_redeem_trx", sql.Int, header.max_total_redeem_trx != null ? Number(header.max_total_redeem_trx) : null)
+        .input("total_redeem_trx_used", sql.Int, numberOrZero(header.total_redeem_trx_used))
         .input("redeem_mode", sql.VarChar(10), header.redeem_mode || "ONCE")
         .input("max_redeem_times_per_trx", sql.Int, header.max_redeem_times_per_trx != null ? Number(header.max_redeem_times_per_trx) : null)
         .input("max_redeem_per_customer", sql.Int, header.max_redeem_per_customer != null ? Number(header.max_redeem_per_customer) : null)
@@ -500,8 +487,11 @@ export default async function promoRoutes(fastify) {
                status_aktif = @status_aktif,
                status_approval = @status_approval,
                budget_total = @budget_total,
+               budget_terpakai = @budget_terpakai,
                max_total_item = @max_total_item,
+               total_item_terpakai = @total_item_terpakai,
                max_total_redeem_trx = @max_total_redeem_trx,
+               total_redeem_trx_used = @total_redeem_trx_used,
                redeem_mode = @redeem_mode,
                max_redeem_times_per_trx = @max_redeem_times_per_trx,
                max_redeem_per_customer = @max_redeem_per_customer,
@@ -536,8 +526,11 @@ export default async function promoRoutes(fastify) {
       .input("status_aktif", sql.Bit, Number(header.status_aktif) === 1 ? 1 : 0)
       .input("status_approval", sql.Int, Number(header.status_approval || 0))
       .input("budget_total", sql.Decimal(18, 2), header.budget_total != null ? Number(header.budget_total) : null)
+      .input("budget_terpakai", sql.Decimal(18, 2), numberOrZero(header.budget_terpakai))
       .input("max_total_item", sql.Int, header.max_total_item != null ? Number(header.max_total_item) : null)
+      .input("total_item_terpakai", sql.Int, numberOrZero(header.total_item_terpakai))
       .input("max_total_redeem_trx", sql.Int, header.max_total_redeem_trx != null ? Number(header.max_total_redeem_trx) : null)
+      .input("total_redeem_trx_used", sql.Int, numberOrZero(header.total_redeem_trx_used))
       .input("redeem_mode", sql.VarChar(10), header.redeem_mode || "ONCE")
       .input("max_redeem_times_per_trx", sql.Int, header.max_redeem_times_per_trx != null ? Number(header.max_redeem_times_per_trx) : null)
       .input("max_redeem_per_customer", sql.Int, header.max_redeem_per_customer != null ? Number(header.max_redeem_per_customer) : null)
@@ -560,6 +553,7 @@ export default async function promoRoutes(fastify) {
         `INSERT INTO dbo.GWEN_t_promosi (
            kode_t_promosi, nama_promosi, deskripsi, valid_from, valid_to, time_from, time_to, jenis_sumber,
            status_aktif, status_approval, budget_total, max_total_item, max_total_redeem_trx,
+           budget_terpakai, total_item_terpakai, total_redeem_trx_used,
            redeem_mode, max_redeem_times_per_trx, max_redeem_per_customer, redeem_scope_per_customer,
            payment_scope, created_by, created_at, updated_by, updated_at,
            approved_by, approved_at, rejected_by, rejected_at, catatan_approval,
@@ -568,12 +562,110 @@ export default async function promoRoutes(fastify) {
          VALUES (
            @kode_t_promosi, @nama_promosi, @deskripsi, @valid_from, @valid_to, @time_from, @time_to, @jenis_sumber,
            @status_aktif, @status_approval, @budget_total, @max_total_item, @max_total_redeem_trx,
+           @budget_terpakai, @total_item_terpakai, @total_redeem_trx_used,
            @redeem_mode, @max_redeem_times_per_trx, @max_redeem_per_customer, @redeem_scope_per_customer,
            @payment_scope, @created_by, @created_at, @updated_by, @updated_at,
            @approved_by, @approved_at, @rejected_by, @rejected_at, @catatan_approval,
            @is_archived, @archived_by, @archived_at, @archive_note
          );`
       );
+  };
+
+  const syncPromoPayloadToKasir = async ({
+    kode,
+    payload,
+    kasirTargets,
+    sendProgress,
+    promoIndex = 1,
+    promoTotal = 1,
+    connectedTargetPools = null,
+  }) => {
+    const results = await Promise.all(kasirTargets.map(async (target, index) => {
+      sendProgress?.({
+        type: "kasir_start",
+        promo_index: promoIndex,
+        promo_total: promoTotal,
+        index: index + 1,
+        total: kasirTargets.length,
+        label: target.label,
+        server: target.server,
+        database: target.database_name,
+      });
+      const poolEntry = connectedTargetPools?.get(target.database_name);
+      const targetPool = poolEntry?.pool || createKasirPool({ sql, target, requestTimeout: 60000, connectionTimeout: 30000 });
+      try {
+        if (poolEntry?.error) throw poolEntry.error;
+        if (!poolEntry) await targetPool.connect();
+        const trx = new sql.Transaction(targetPool);
+        await trx.begin();
+        try {
+          await upsertPromoHeaderToTarget(trx, payload.header);
+          await deleteChildren(trx, kode);
+          await insertChildren(trx, kode, payload);
+          await trx.commit();
+          const result = {
+            label: target.label,
+            server: target.server,
+            database: target.database_name,
+            ok: true,
+          };
+          sendProgress?.({
+            type: "kasir_complete",
+            promo_index: promoIndex,
+            promo_total: promoTotal,
+            index: index + 1,
+            total: kasirTargets.length,
+            ...result,
+          });
+          return result;
+        } catch (err) {
+          await trx.rollback().catch(() => {});
+          throw err;
+        }
+      } catch (err) {
+        const result = {
+          label: target.label,
+          server: target.server,
+          database: target.database_name,
+          ok: false,
+          error: err?.originalError?.info?.message || err?.message || "Gagal sync promosi",
+        };
+        sendProgress?.({
+          type: "kasir_complete",
+          promo_index: promoIndex,
+          promo_total: promoTotal,
+          index: index + 1,
+          total: kasirTargets.length,
+          ...result,
+        });
+        return result;
+      } finally {
+        if (!poolEntry) await targetPool.close().catch(() => {});
+      }
+    }));
+
+    return results;
+  };
+
+  const connectKasirTargetWithRetry = async ({ target, attempts = 2, connectionTimeout = 15000, poolMax = 1 }) => {
+    let lastError = null;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      const targetPool = createKasirPool({
+        sql,
+        target,
+        requestTimeout: 60000,
+        connectionTimeout,
+        poolMax,
+      });
+      try {
+        await targetPool.connect();
+        return { pool: targetPool, attempt };
+      } catch (err) {
+        lastError = err;
+        await targetPool.close().catch(() => {});
+      }
+    }
+    throw lastError;
   };
 
   fastify.get("/", async (request, reply) => {
@@ -1223,6 +1315,10 @@ export default async function promoRoutes(fastify) {
       if (!payload?.header) {
         return reply.code(404).send({ message: "Promosi tidak ditemukan" });
       }
+      const kasirTargets = await getKasirTargets({ pool, sql, activeOnly: true });
+      if (!kasirTargets.length) {
+        return reply.code(400).send({ message: "Target kasir aktif belum dikonfigurasi" });
+      }
 
       reply.raw.writeHead(200, {
         "Content-Type": "application/x-ndjson; charset=utf-8",
@@ -1233,51 +1329,8 @@ export default async function promoRoutes(fastify) {
       const sendProgress = (event) => {
         if (!reply.raw.writableEnded) reply.raw.write(`${JSON.stringify(event)}\n`);
       };
-      const results = [];
       sendProgress({ type: "start", kode_t_promosi: kode, total: kasirTargets.length });
-
-      for (const [index, target] of kasirTargets.entries()) {
-        sendProgress({
-          type: "kasir_start",
-          index: index + 1,
-          total: kasirTargets.length,
-          server: target.server,
-          database: target.database,
-        });
-        const targetPool = createKasirPool(target);
-        try {
-          await targetPool.connect();
-          const trx = new sql.Transaction(targetPool);
-          await trx.begin();
-          try {
-            await upsertPromoHeaderToTarget(trx, payload.header);
-            await deleteChildren(trx, kode);
-            await insertChildren(trx, kode, payload);
-            await trx.commit();
-            const result = {
-              server: target.server,
-              database: target.database,
-              ok: true,
-            };
-            results.push(result);
-            sendProgress({ type: "kasir_complete", index: index + 1, total: kasirTargets.length, ...result });
-          } catch (err) {
-            await trx.rollback().catch(() => {});
-            throw err;
-          }
-        } catch (err) {
-          const result = {
-            server: target.server,
-            database: target.database,
-            ok: false,
-            error: err?.originalError?.info?.message || err?.message || "Gagal sync promosi",
-          };
-          results.push(result);
-          sendProgress({ type: "kasir_complete", index: index + 1, total: kasirTargets.length, ...result });
-        } finally {
-          await targetPool.close().catch(() => {});
-        }
-      }
+      const results = await syncPromoPayloadToKasir({ kode, payload, kasirTargets, sendProgress });
 
       const hasFailure = results.some((row) => !row.ok);
       sendProgress({
@@ -1298,6 +1351,198 @@ export default async function promoRoutes(fastify) {
         return reply;
       }
       return reply.code(500).send({ message: err.message || "Gagal sync promosi ke kasir" });
+    }
+  });
+
+  fastify.post("/sync-all-to-kasir", async (request, reply) => {
+    const body = request.body || {};
+    const promoCodes = Array.isArray(body.promo_codes)
+      ? [...new Set(body.promo_codes.map((item) => String(item || "").trim()).filter(Boolean))]
+      : [];
+    if (!promoCodes.length) return reply.code(400).send({ message: "Daftar promo kosong" });
+    const syncConcurrency = Math.min(5, Math.max(1, Number(body.concurrency) || 3));
+
+    try {
+      const kasirTargets = await getKasirTargets({ pool, sql, activeOnly: true });
+      if (!kasirTargets.length) {
+        return reply.code(400).send({ message: "Target kasir aktif belum dikonfigurasi" });
+      }
+
+      reply.raw.writeHead(200, {
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      });
+      const sendProgress = (event) => {
+        if (!reply.raw.writableEnded) reply.raw.write(`${JSON.stringify(event)}\n`);
+      };
+      const results = [];
+      sendProgress({ type: "start", total_promos: promoCodes.length, total_kasir: kasirTargets.length, concurrency: syncConcurrency });
+      sendProgress({ type: "prepare_targets", total_kasir: kasirTargets.length });
+      const connectedTargetPools = new Map();
+      await Promise.all(kasirTargets.map(async (target, targetIndex) => {
+        sendProgress({
+          type: "target_connect_start",
+          index: targetIndex + 1,
+          total: kasirTargets.length,
+          attempt: 1,
+          attempts: 2,
+          label: target.label,
+          server: target.server,
+          database: target.database_name,
+        });
+        try {
+          const connected = await connectKasirTargetWithRetry({
+            target,
+            attempts: 2,
+            connectionTimeout: 15000,
+            poolMax: syncConcurrency,
+          });
+          connectedTargetPools.set(target.database_name, { pool: connected.pool });
+          sendProgress({
+            type: "target_connect_complete",
+            index: targetIndex + 1,
+            total: kasirTargets.length,
+            attempt: connected.attempt,
+            label: target.label,
+            server: target.server,
+            database: target.database_name,
+            ok: true,
+          });
+        } catch (err) {
+          const error = err?.originalError?.info?.message || err?.message || "Gagal koneksi kasir";
+          connectedTargetPools.set(target.database_name, { error: new Error(error) });
+          sendProgress({
+            type: "target_connect_complete",
+            index: targetIndex + 1,
+            total: kasirTargets.length,
+            attempts: 2,
+            label: target.label,
+            server: target.server,
+            database: target.database_name,
+            ok: false,
+            error,
+          });
+        }
+      }));
+      const onlineTargets = kasirTargets.filter((target) => connectedTargetPools.get(target.database_name)?.pool);
+      const offlineTargets = kasirTargets
+        .filter((target) => connectedTargetPools.get(target.database_name)?.error)
+        .map((target) => ({
+          label: target.label,
+          server: target.server,
+          database: target.database_name,
+          ok: false,
+          error: connectedTargetPools.get(target.database_name)?.error?.message || "Gagal koneksi kasir",
+        }));
+      sendProgress({
+        type: "target_check_complete",
+        total_kasir: kasirTargets.length,
+        online_kasir: onlineTargets.length,
+        offline_kasir: offlineTargets.length,
+        offline_targets: offlineTargets,
+      });
+
+      try {
+        let nextPromoIndex = 0;
+        let completedPromos = 0;
+        const syncNextPromo = async () => {
+          while (nextPromoIndex < promoCodes.length) {
+            const promoIndex = nextPromoIndex++;
+            const kode = promoCodes[promoIndex];
+            const payload = await fetchPromoDetail(kode);
+            if (!payload?.header) {
+              const result = {
+                kode_t_promosi: kode,
+                nama_promosi: kode,
+                ok: false,
+                error: "Promosi tidak ditemukan",
+                kasir_results: [],
+              };
+              results.push(result);
+              completedPromos += 1;
+              sendProgress({
+                type: "promo_complete",
+                promo_index: promoIndex + 1,
+                promo_done_count: completedPromos,
+                promo_total: promoCodes.length,
+                ...result,
+              });
+              continue;
+            }
+
+            const promoMeta = {
+              kode_t_promosi: kode,
+              nama_promosi: payload.header.nama_promosi || payload.header.deskripsi || kode,
+            };
+            sendProgress({
+              type: "promo_start",
+              promo_index: promoIndex + 1,
+              promo_total: promoCodes.length,
+              total_kasir: onlineTargets.length,
+              skipped_kasir: offlineTargets.length,
+              ...promoMeta,
+            });
+            const kasirResults = onlineTargets.length
+              ? await syncPromoPayloadToKasir({
+                  kode,
+                  payload,
+                  kasirTargets: onlineTargets,
+                  sendProgress,
+                  promoIndex: promoIndex + 1,
+                  promoTotal: promoCodes.length,
+                  connectedTargetPools,
+                })
+              : [];
+            const result = {
+              ...promoMeta,
+              ok: onlineTargets.length > 0 && kasirResults.every((item) => item.ok),
+              skipped_kasir_results: offlineTargets,
+              kasir_results: kasirResults,
+            };
+            results.push(result);
+            completedPromos += 1;
+            sendProgress({
+              type: "promo_complete",
+              promo_index: promoIndex + 1,
+              promo_done_count: completedPromos,
+              promo_total: promoCodes.length,
+              ...result,
+            });
+          }
+        };
+        await Promise.all(Array.from({ length: Math.min(syncConcurrency, promoCodes.length) }, () => syncNextPromo()));
+      } finally {
+        await Promise.all(
+          Array.from(connectedTargetPools.values())
+            .map((entry) => entry.pool)
+            .filter(Boolean)
+            .map((targetPool) => targetPool.close().catch(() => {}))
+        );
+      }
+
+      const failedPromos = results.filter((row) => !row.ok).length;
+      sendProgress({
+        type: "complete",
+        total_promos: promoCodes.length,
+        success_promos: results.length - failedPromos,
+        failed_promos: failedPromos,
+        results,
+        status: failedPromos ? "partial" : "success",
+      });
+      reply.raw.end();
+      return reply;
+    } catch (err) {
+      fastify.log.error({ err }, "Failed sync all promosi to kasir");
+      if (reply.raw.headersSent) {
+        if (!reply.raw.writableEnded) {
+          reply.raw.write(`${JSON.stringify({ type: "error", message: err.message || "Gagal sync semua promosi ke kasir" })}\n`);
+          reply.raw.end();
+        }
+        return reply;
+      }
+      return reply.code(500).send({ message: err.message || "Gagal sync semua promosi ke kasir" });
     }
   });
 
@@ -1333,6 +1578,8 @@ export default async function promoRoutes(fastify) {
 
     try {
       const kodeBanner = generateDetailCode("PBN");
+      const now = new Date();
+      const createdBy = String(body.created_by || "Admin");
       await pool
         .request()
         .input("kode_d_banner", sql.VarChar(50), kodeBanner)
@@ -1347,14 +1594,16 @@ export default async function promoRoutes(fastify) {
         .input("banner_valid_from", sql.DateTime2, parseDate(body.banner_valid_from))
         .input("banner_valid_to", sql.DateTime2, parseDate(body.banner_valid_to))
         .input("is_active", sql.Bit, body.is_active === 0 ? 0 : 1)
-        .input("created_by", sql.VarChar(100), String(body.created_by || "Admin"))
+        .input("created_by", sql.VarChar(100), createdBy)
+        .input("created_at", sql.DateTime2, now)
         .query(
           `INSERT INTO dbo.GWEN_d_promosi_banner
            (kode_d_banner, kode_t_promosi, is_show_tv, tv_priority, banner_type, banner_url,
-            banner_title, banner_subtitle, banner_cta, banner_valid_from, banner_valid_to, is_active, created_by)
+            banner_title, banner_subtitle, banner_cta, banner_valid_from, banner_valid_to, is_active,
+            created_by, created_at)
            VALUES (@kode_d_banner, @kode_t_promosi, @is_show_tv, @tv_priority, @banner_type, @banner_url,
                    @banner_title, @banner_subtitle, @banner_cta, @banner_valid_from, @banner_valid_to,
-                   @is_active, @created_by);`
+                   @is_active, @created_by, @created_at);`
         );
       return reply.code(201).send({ kode_d_banner: kodeBanner });
     } catch (err) {
@@ -1409,19 +1658,26 @@ export default async function promoRoutes(fastify) {
           .input("banner_url", sql.VarChar(500), bannerUrl)
           .input("banner_type", sql.VarChar(10), "IMAGE")
           .query(`UPDATE dbo.GWEN_d_promosi_banner
-                  SET banner_url = @banner_url, banner_type = @banner_type, is_active = 1
+                  SET banner_url = @banner_url,
+                      banner_type = @banner_type,
+                      is_active = 1
                   WHERE kode_d_banner = @kode_d_banner AND kode_t_promosi = @kode_t_promosi;`);
       } else {
+        const now = new Date();
+        const createdBy = String(request.body?.updated_by || "Admin");
         await pool
           .request()
           .input("kode_d_banner", sql.VarChar(50), bannerId)
           .input("kode_t_promosi", sql.VarChar(50), kode)
           .input("banner_url", sql.VarChar(500), bannerUrl)
           .input("banner_type", sql.VarChar(10), "IMAGE")
-          .input("created_by", sql.VarChar(100), String(request.body?.updated_by || "Admin"))
+          .input("created_by", sql.VarChar(100), createdBy)
+          .input("created_at", sql.DateTime2, now)
           .query(`INSERT INTO dbo.GWEN_d_promosi_banner
-                  (kode_d_banner, kode_t_promosi, is_show_tv, tv_priority, banner_type, banner_url, is_active, created_by)
-                  VALUES (@kode_d_banner, @kode_t_promosi, 0, 0, @banner_type, @banner_url, 1, @created_by);`);
+                  (kode_d_banner, kode_t_promosi, is_show_tv, tv_priority, banner_type, banner_url,
+                   is_active, created_by, created_at)
+                  VALUES (@kode_d_banner, @kode_t_promosi, 0, 0, @banner_type, @banner_url,
+                          1, @created_by, @created_at);`);
       }
 
       return reply.code(201).send({ kode_t_promosi: kode, kode_d_banner: bannerId, banner_url: bannerUrl });

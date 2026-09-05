@@ -36,11 +36,19 @@ const getDefaultPromoListDateRange = () => {
 };
 
 type SyncKasirResult = {
+  label?: string;
   server: string;
   database: string;
   ok: boolean;
   error?: string;
   state?: "pending" | "running" | "success" | "failed";
+};
+
+type BulkPromoSyncResult = {
+  kode_t_promosi: string;
+  nama_promosi: string;
+  ok: boolean;
+  error?: string;
 };
 
 export default function PromoRefraksiPage() {
@@ -86,6 +94,7 @@ export default function PromoRefraksiPage() {
   const [promoRows, setPromoRows] = useState<any[]>([]);
   const [promoLoading, setPromoLoading] = useState(false);
   const [promoError, setPromoError] = useState<string | null>(null);
+  const [selectedPromoCodes, setSelectedPromoCodes] = useState<Set<string>>(new Set());
   const [listQuery, setListQuery] = useState("");
   const [statusApprovalFilter, setStatusApprovalFilter] = useState("semua");
   const [statusAktifFilter, setStatusAktifFilter] = useState("semua");
@@ -116,6 +125,11 @@ export default function PromoRefraksiPage() {
   const [syncCompleted, setSyncCompleted] = useState(0);
   const [syncFinished, setSyncFinished] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [syncMode, setSyncMode] = useState<"single" | "all">("single");
+  const [syncPromoIndex, setSyncPromoIndex] = useState(0);
+  const [syncPromoTotal, setSyncPromoTotal] = useState(0);
+  const [syncPromoResults, setSyncPromoResults] = useState<BulkPromoSyncResult[]>([]);
+  const [syncOfflineTargets, setSyncOfflineTargets] = useState<SyncKasirResult[]>([]);
   const [uploadingImageId, setUploadingImageId] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<{ url: string; name: string; kode: string } | null>(null);
 
@@ -425,12 +439,17 @@ export default function PromoRefraksiPage() {
     if (!kode) return;
 
     setSyncingId(kode);
+    setSyncMode("single");
     setSyncPromoName(String(row?.nama_promosi || kode));
     setSyncProgress([]);
     setSyncTotal(4);
     setSyncCompleted(0);
     setSyncFinished(false);
     setSyncError(null);
+    setSyncPromoIndex(0);
+    setSyncPromoTotal(0);
+    setSyncPromoResults([]);
+    setSyncOfflineTargets([]);
     setSyncModalOpen(true);
 
     try {
@@ -490,6 +509,196 @@ export default function PromoRefraksiPage() {
       }
 
       if (!finalResults.length && buffer.trim()) applyEvent(JSON.parse(buffer));
+    } catch (err) {
+      setSyncError(String(err));
+      setSyncFinished(true);
+    } finally {
+      setSyncingId(null);
+    }
+  };
+
+  const handleSyncAllToKasir = async () => {
+    const promos = selectedPromoRows
+      .map((row) => ({
+        kode_t_promosi: String(row?.kode_t_promosi || "").trim(),
+        nama_promosi: String(row?.nama_promosi || row?.deskripsi || row?.kode_t_promosi || "").trim(),
+      }))
+      .filter((row) => row.kode_t_promosi);
+    if (!promos.length) return;
+
+    setSyncingId("__ALL__");
+    setSyncMode("all");
+    setSyncPromoName("Menyiapkan sinkronisasi promo terpilih...");
+    setSyncProgress([]);
+    setSyncTotal(1);
+    setSyncCompleted(0);
+    setSyncFinished(false);
+    setSyncError(null);
+    setSyncPromoIndex(0);
+    setSyncPromoTotal(promos.length);
+    setSyncPromoResults([]);
+    setSyncOfflineTargets([]);
+    setSyncModalOpen(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/promos/sync-all-to-kasir`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          updated_by: getUsername(),
+          promo_codes: promos.map((row) => row.kode_t_promosi),
+        }),
+      });
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.message || `HTTP ${res.status}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      const applyEvent = (event: any) => {
+        if (event?.type === "start") {
+          setSyncPromoTotal(Number(event.total_promos) || promos.length);
+          setSyncTotal(Number(event.total_kasir) || 1);
+        }
+        if (event?.type === "prepare_targets") {
+          setSyncPromoName("Menyiapkan koneksi kasir...");
+          setSyncProgress([]);
+          setSyncCompleted(0);
+          setSyncTotal(Number(event.total_kasir) || 1);
+        }
+        if (event?.type === "target_connect_start") {
+          setSyncProgress((current) => {
+            const next = current.filter((item) => item.database !== event.database);
+            return [
+              ...next,
+              {
+                label: event.label,
+                server: event.server,
+                database: event.database,
+                ok: false,
+                state: "running",
+              },
+            ];
+          });
+        }
+        if (event?.type === "target_connect_complete") {
+          const result = {
+            label: event.label,
+            server: event.server,
+            database: event.database,
+            ok: Boolean(event.ok),
+            error: event.error,
+            state: event.ok ? "success" : "failed",
+          } as SyncKasirResult;
+          setSyncProgress((current) => [...current.filter((item) => item.database !== result.database), result]);
+          setSyncCompleted((current) => Math.max(current, Number(event.index) || current + 1));
+        }
+        if (event?.type === "target_check_complete") {
+          const offlineTargets = Array.isArray(event.offline_targets)
+            ? event.offline_targets.map((item: any) => ({
+                label: item.label,
+                server: item.server,
+                database: item.database,
+                ok: false,
+                error: item.error,
+                state: "failed",
+              }))
+            : [];
+          setSyncOfflineTargets(offlineTargets);
+          setSyncTotal(Number(event.online_kasir) || 0);
+          setSyncCompleted(0);
+          setSyncProgress([]);
+          if (Number(event.online_kasir) === 0) {
+            setSyncPromoName("Tidak ada kasir online untuk sinkronisasi");
+          }
+        }
+        if (event?.type === "promo_start") {
+          setSyncPromoIndex(Number(event.promo_index) || 0);
+          setSyncPromoTotal(Number(event.promo_total) || promos.length);
+          setSyncPromoName(String(event.nama_promosi || event.kode_t_promosi || "Promo"));
+          setSyncProgress([]);
+          setSyncCompleted(0);
+          setSyncTotal(Number(event.total_kasir) || 1);
+        }
+        if (event?.type === "kasir_start") {
+          setSyncProgress((current) => {
+            const next = current.filter((item) => item.database !== event.database);
+            return [
+              ...next,
+              {
+                label: event.label,
+                server: event.server,
+                database: event.database,
+                ok: false,
+                state: "running",
+              },
+            ];
+          });
+        }
+        if (event?.type === "kasir_complete") {
+          const result = {
+            label: event.label,
+            server: event.server,
+            database: event.database,
+            ok: Boolean(event.ok),
+            error: event.error,
+            state: event.ok ? "success" : "failed",
+          } as SyncKasirResult;
+          setSyncProgress((current) => [...current.filter((item) => item.database !== result.database), result]);
+          setSyncCompleted((current) => Math.max(current, Number(event.index) || current + 1));
+        }
+        if (event?.type === "promo_complete") {
+          const result = {
+            kode_t_promosi: String(event.kode_t_promosi || ""),
+            nama_promosi: String(event.nama_promosi || event.kode_t_promosi || ""),
+            ok: Boolean(event.ok),
+            error: event.error,
+          };
+          setSyncPromoIndex((current) => Math.max(current, Number(event.promo_done_count) || current + 1));
+          setSyncPromoResults((current) => [
+            ...current.filter((item) => item.kode_t_promosi !== result.kode_t_promosi),
+            result,
+          ]);
+        }
+        if (event?.type === "complete") {
+          const finalResults = Array.isArray(event.results) ? event.results : [];
+          const successCodes = finalResults
+            .filter((item: any) => Boolean(item.ok))
+            .map((item: any) => String(item.kode_t_promosi || ""))
+            .filter(Boolean);
+          setSyncPromoResults(
+            finalResults.map((item: any) => ({
+              kode_t_promosi: String(item.kode_t_promosi || ""),
+              nama_promosi: String(item.nama_promosi || item.kode_t_promosi || ""),
+              ok: Boolean(item.ok),
+              error: item.error,
+            }))
+          );
+          setSyncPromoIndex(Number(event.total_promos) || promos.length);
+          setSelectedPromoCodes((current) => {
+            const next = new Set(current);
+            successCodes.forEach((kode) => next.delete(kode));
+            return next;
+          });
+          setSyncFinished(true);
+        }
+        if (event?.type === "error") {
+          throw new Error(event.message || "Gagal sync semua promo ke kasir");
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        lines.filter(Boolean).forEach((line) => applyEvent(JSON.parse(line)));
+        if (done) break;
+      }
+
+      if (buffer.trim()) applyEvent(JSON.parse(buffer));
     } catch (err) {
       setSyncError(String(err));
       setSyncFinished(true);
@@ -890,6 +1099,39 @@ export default function PromoRefraksiPage() {
     });
   }, [displayedPromoRows, getValidityLabel, sortDirection, sortKey]);
 
+  const selectedPromoRows = useMemo(
+    () => sortedPromoRows.filter((row) => selectedPromoCodes.has(String(row?.kode_t_promosi || ""))),
+    [selectedPromoCodes, sortedPromoRows]
+  );
+
+  const visiblePromoCodes = useMemo(
+    () => sortedPromoRows.map((row) => String(row?.kode_t_promosi || "")).filter(Boolean),
+    [sortedPromoRows]
+  );
+
+  const isAllVisiblePromosSelected =
+    visiblePromoCodes.length > 0 && visiblePromoCodes.every((kode) => selectedPromoCodes.has(kode));
+
+  const toggleSelectAllVisiblePromos = (checked: boolean) => {
+    setSelectedPromoCodes((current) => {
+      const next = new Set(current);
+      visiblePromoCodes.forEach((kode) => {
+        if (checked) next.add(kode);
+        else next.delete(kode);
+      });
+      return next;
+    });
+  };
+
+  const toggleSelectPromo = (kode: string, checked: boolean) => {
+    setSelectedPromoCodes((current) => {
+      const next = new Set(current);
+      if (checked) next.add(kode);
+      else next.delete(kode);
+      return next;
+    });
+  };
+
   const toggleSort = (key: string) => {
     setSortKey((prev) => {
       if (prev === key) {
@@ -1228,16 +1470,33 @@ export default function PromoRefraksiPage() {
               <div>
                 <p className="text-sm text-gray-500">Daftar Promo</p>
                 <p className="text-base font-semibold text-gray-800">Diskon Refraksi</p>
+                <p className="text-xs text-gray-500">{selectedPromoRows.length} promo terseleksi</p>
               </div>
-              <button
-                type="button"
-                onClick={handleExportExcel}
-                disabled={promoLoading || sortedPromoRows.length === 0}
-                className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Download className="h-4 w-4" />
-                Export Excel
-              </button>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={handleSyncAllToKasir}
+                  disabled={promoLoading || selectedPromoRows.length === 0 || syncingId === "__ALL__"}
+                  className="inline-flex items-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-700 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  title="Sinkron promo yang diceklist saja"
+                >
+                  {syncingId === "__ALL__" ? (
+                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ListChecks className="h-4 w-4" />
+                  )}
+                  Sync Promo Terpilih ({selectedPromoRows.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportExcel}
+                  disabled={promoLoading || sortedPromoRows.length === 0}
+                  className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Download className="h-4 w-4" />
+                  Export Excel
+                </button>
+              </div>
             </div>
             <div className="p-4">
               {promoLoading ? (
@@ -1251,6 +1510,15 @@ export default function PromoRefraksiPage() {
                   <table className="min-w-full text-sm">
                     <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
                       <tr>
+                        <th className="px-4 py-3 text-left">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-gray-300"
+                            checked={isAllVisiblePromosSelected}
+                            onChange={(event) => toggleSelectAllVisiblePromos(event.target.checked)}
+                            aria-label="Pilih semua promo yang tampil"
+                          />
+                        </th>
                         <th className="px-4 py-3 text-left">
                           <button type="button" className="inline-flex items-center" onClick={() => toggleSort("kode_t_promosi")}>
                             Kode {renderSortIcon("kode_t_promosi")}
@@ -1308,6 +1576,15 @@ export default function PromoRefraksiPage() {
                     <tbody className="divide-y divide-gray-100">
                       {sortedPromoRows.map((row) => (
                         <tr key={row.kode_t_promosi} className="hover:bg-gray-50">
+                          <td className="px-4 py-3">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-gray-300"
+                              checked={selectedPromoCodes.has(String(row.kode_t_promosi || ""))}
+                              onChange={(event) => toggleSelectPromo(String(row.kode_t_promosi || ""), event.target.checked)}
+                              aria-label={`Pilih promo ${row.kode_t_promosi}`}
+                            />
+                          </td>
                           <td className="px-4 py-3 font-semibold text-gray-900">{row.kode_t_promosi}</td>
                           <td className="px-4 py-3">
                             <div className="font-medium text-gray-900">{row.nama_promosi || "-"}</div>
@@ -2288,11 +2565,31 @@ export default function PromoRefraksiPage() {
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-700">Sinkronisasi Promo</p>
                   <h2 className="mt-1 text-lg font-semibold text-slate-900">{syncPromoName}</h2>
                   <p className="mt-1 text-xs text-slate-500">
-                    {syncFinished ? "Proses selesai. Periksa status setiap kasir di bawah." : "Menjalankan sinkronisasi ke database kasir..."}
+                    {syncFinished
+                      ? "Proses selesai. Periksa status sinkronisasi di bawah."
+                      : syncMode === "all"
+                        ? "Menjalankan sinkronisasi promo yang diceklist..."
+                        : "Menjalankan sinkronisasi ke database kasir..."}
                   </p>
                 </div>
                 {!syncFinished && <LoaderCircle className="h-5 w-5 animate-spin text-cyan-600" />}
               </div>
+              {syncMode === "all" && (
+                <div className="mt-4 rounded-xl border border-cyan-100 bg-white px-3 py-2">
+                  <div className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-600">
+                    <span>Progress promo</span>
+                    <span>
+                      {syncPromoIndex} dari {syncPromoTotal} promo
+                    </span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      className="h-full rounded-full bg-cyan-500 transition-all duration-500"
+                      style={{ width: `${Math.min(100, (syncPromoIndex / Math.max(1, syncPromoTotal)) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
               <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-200">
                 <div
                   className="h-full rounded-full bg-cyan-600 transition-all duration-500"
@@ -2305,6 +2602,43 @@ export default function PromoRefraksiPage() {
             </div>
 
             <div className="space-y-3 px-5 py-5">
+              {syncMode === "all" && syncOfflineTargets.length > 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                    Kasir offline dilewati
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    {syncOfflineTargets.map((item) => (
+                      <div key={item.database} className="text-xs text-amber-800">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-semibold">{item.label || item.server}</span>
+                          <span>Dilewati</span>
+                        </div>
+                        <p className="mt-0.5 break-all text-amber-700">{item.database}</p>
+                        {item.error && <p className="mt-1 rounded-lg bg-white/70 px-2 py-1 text-amber-700">{item.error}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {syncMode === "all" && syncPromoResults.length > 0 && (
+                <div className="max-h-36 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Riwayat Promo</p>
+                  <div className="space-y-1">
+                    {syncPromoResults.map((item) => (
+                      <div key={item.kode_t_promosi} className="flex items-start justify-between gap-3 text-xs">
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-slate-700">{item.nama_promosi}</p>
+                          <p className="text-slate-400">{item.kode_t_promosi}</p>
+                        </div>
+                        <span className={item.ok ? "font-semibold text-emerald-700" : "font-semibold text-rose-700"}>
+                          {item.ok ? "Berhasil" : "Gagal"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {syncProgress.length === 0 ? (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-5 text-center text-sm text-slate-500">
                   Menyiapkan data promo...
@@ -2329,7 +2663,7 @@ export default function PromoRefraksiPage() {
                         )}
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <p className="font-semibold text-slate-800">{item.server}</p>
+                            <p className="font-semibold text-slate-800">{item.label || item.server}</p>
                             <span
                               className={`text-xs font-semibold ${
                                 isRunning ? "text-cyan-700" : isSuccess ? "text-emerald-700" : "text-rose-700"
@@ -2352,7 +2686,13 @@ export default function PromoRefraksiPage() {
               {syncError && <div className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{syncError}</div>}
               {syncFinished && !syncError && (
                 <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                  {syncProgress.filter((item) => item.ok).length} berhasil, {syncProgress.filter((item) => !item.ok).length} gagal.
+                  {syncMode === "all"
+                    ? `${syncPromoResults.filter((item) => item.ok).length} promo berhasil, ${
+                        syncPromoResults.filter((item) => !item.ok).length
+                      } promo gagal.${syncOfflineTargets.length ? ` ${syncOfflineTargets.length} kasir offline dilewati.` : ""}`
+                    : `${syncProgress.filter((item) => item.ok).length} berhasil, ${
+                        syncProgress.filter((item) => !item.ok).length
+                      } gagal.`}
                 </div>
               )}
             </div>

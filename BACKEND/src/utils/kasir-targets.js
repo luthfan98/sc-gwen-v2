@@ -67,7 +67,7 @@ export const getKasirTargets = async ({ pool, sql, activeOnly = true }) => {
   return res.recordset || [];
 };
 
-export const createKasirPool = ({ sql, target, requestTimeout = 30000, connectionTimeout = 10000 }) =>
+export const createKasirPool = ({ sql, target, requestTimeout = 30000, connectionTimeout = 10000, poolMax = 1 }) =>
   new sql.ConnectionPool({
     server: target.server,
     user: target.db_user || "sa",
@@ -76,7 +76,7 @@ export const createKasirPool = ({ sql, target, requestTimeout = 30000, connectio
     requestTimeout,
     connectionTimeout,
     pool: {
-      max: 1,
+      max: poolMax,
       min: 0,
       idleTimeoutMillis: Math.max(connectionTimeout, 10000),
     },
