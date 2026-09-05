@@ -61,6 +61,19 @@ type KasirPriceResult = {
   }[];
 };
 
+type KasirTarget = {
+  id?: number;
+  label: string;
+  server: string;
+  database: string;
+  database_name?: string;
+  db_user: string;
+  db_password?: string;
+  db_password_set?: boolean;
+  is_active: boolean;
+  sort_order: number;
+};
+
 type EventPriceDraft = {
   harga_1: string;
   harga_3: string;
@@ -97,6 +110,7 @@ const API_HISTORY = `${API_BASE}/barang-harga-jual/history`;
 const API_KASIR_PRICES = `${API_BASE}/barang-harga-jual/kasir-prices`;
 const API_KASIR_SYNC = `${API_BASE}/barang-harga-jual/kasir-prices/sync`;
 const API_KASIR_SYNC_ALL = `${API_BASE}/barang-harga-jual/kasir-prices/sync-all`;
+const API_KASIR_TARGETS = `${API_BASE}/barang-harga-jual/kasir-targets`;
 const API_SUMMARY = `${API_BASE}/barang-harga-jual/summary`;
 const API_COVERAGE = `${API_BASE}/barang-harga-jual/coverage`;
 const KELAS_FILTER_OPTIONS = [
@@ -181,6 +195,21 @@ export default function MasterHargaJualPage() {
     currentItem?: string;
     currentBarcode?: string | null;
   }[]>([]);
+  const [kasirSettingOpen, setKasirSettingOpen] = useState(false);
+  const [kasirTargets, setKasirTargets] = useState<KasirTarget[]>([]);
+  const [kasirTargetsLoading, setKasirTargetsLoading] = useState(false);
+  const [kasirTargetsSaving, setKasirTargetsSaving] = useState(false);
+  const [testingKasirTarget, setTestingKasirTarget] = useState<Record<string, boolean>>({});
+  const [kasirTargetDrafts, setKasirTargetDrafts] = useState<Record<string, KasirTarget>>({});
+  const [newKasirTarget, setNewKasirTarget] = useState<KasirTarget>({
+    label: "",
+    server: "",
+    database: "",
+    db_user: "sa",
+    db_password: "",
+    is_active: true,
+    sort_order: 0,
+  });
   const [actionsOpen, setActionsOpen] = useState(false);
   const [hargaEvents, setHargaEvents] = useState<any[]>([]);
 
@@ -235,6 +264,96 @@ export default function MasterHargaJualPage() {
     return username;
   };
 
+  const normalizeKasirTarget = (target: KasirTarget): KasirTarget => ({
+    ...target,
+    database: target.database || target.database_name || "",
+    database_name: target.database_name || target.database || "",
+    db_user: target.db_user || "sa",
+    is_active: Boolean(target.is_active),
+    sort_order: Number(target.sort_order || 0),
+  });
+
+  const fetchKasirTargets = useCallback(async () => {
+    setKasirTargetsLoading(true);
+    try {
+      const res = await fetch(API_KASIR_TARGETS);
+      const data = await res.json().catch(() => []);
+      if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
+      const targets = Array.isArray(data) ? data.map(normalizeKasirTarget) : [];
+      setKasirTargets(targets);
+      setKasirTargetDrafts(
+        targets.reduce<Record<string, KasirTarget>>((acc, target) => {
+          if (target.id) acc[String(target.id)] = { ...target, db_password: "" };
+          return acc;
+        }, {})
+      );
+      return targets;
+    } catch (err) {
+      console.error("Failed fetch kasir targets", err);
+      setKasirTargets([]);
+      setKasirTargetDrafts({});
+      return [];
+    } finally {
+      setKasirTargetsLoading(false);
+    }
+  }, []);
+
+  const saveKasirTarget = async (target: KasirTarget, isNew = false) => {
+    setKasirTargetsSaving(true);
+    try {
+      const payload = {
+        ...target,
+        database_name: target.database || target.database_name || "",
+      };
+      const res = await fetch(isNew ? API_KASIR_TARGETS : `${API_KASIR_TARGETS}/${target.id}`, {
+        method: isNew ? "POST" : "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
+      const targets = Array.isArray(data?.targets) ? data.targets.map(normalizeKasirTarget) : [];
+      setKasirTargets(targets);
+      setKasirTargetDrafts(
+        targets.reduce<Record<string, KasirTarget>>((acc, row) => {
+          if (row.id) acc[String(row.id)] = { ...row, db_password: "" };
+          return acc;
+        }, {})
+      );
+      if (isNew) {
+        setNewKasirTarget({
+          label: "",
+          server: "",
+          database: "",
+          db_user: "sa",
+          db_password: "",
+          is_active: true,
+          sort_order: targets.length + 1,
+        });
+      }
+      await Swal.fire("Setting kasir tersimpan", "Konfigurasi sinkron kasir sudah diperbarui.", "success");
+    } catch (err) {
+      await Swal.fire("Gagal simpan setting kasir", err instanceof Error ? err.message : String(err), "error");
+    } finally {
+      setKasirTargetsSaving(false);
+    }
+  };
+
+  const testKasirTarget = async (target: KasirTarget) => {
+    if (!target.id) return;
+    setTestingKasirTarget((prev) => ({ ...prev, [String(target.id)]: true }));
+    try {
+      const res = await fetch(`${API_KASIR_TARGETS}/${target.id}/test`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
+      await Swal.fire("Koneksi berhasil", `${target.label} bisa diakses.`, "success");
+    } catch (err) {
+      await Swal.fire("Koneksi gagal", err instanceof Error ? err.message : String(err), "error");
+    } finally {
+      setTestingKasirTarget((prev) => ({ ...prev, [String(target.id)]: false }));
+    }
+  };
+
   useEffect(() => {
     const fetchSummary = async () => {
       try {
@@ -266,7 +385,8 @@ export default function MasterHargaJualPage() {
       }
     };
     fetchHargaEvents();
-  }, []);
+    fetchKasirTargets();
+  }, [fetchKasirTargets]);
 
   useEffect(() => {
     fetchData();
@@ -1012,15 +1132,25 @@ export default function MasterHargaJualPage() {
   };
 
   const handleSyncAllKasir = async () => {
-    const targets = [
-      { label: "Kasir 1", database: "db_gwen_kasir1" },
-      { label: "Kasir 2", database: "db_gwen_kasir2" },
-      { label: "Kasir 3", database: "db_gwen_kasir3" },
-    ];
+    let targets = kasirTargets
+      .filter((target) => target.is_active)
+      .map((target) => ({ label: target.label, database: target.database || target.database_name || "" }))
+      .filter((target) => target.database);
+    if (!targets.length) {
+      const latestTargets = await fetchKasirTargets();
+      targets = latestTargets
+        .filter((target) => target.is_active)
+        .map((target) => ({ label: target.label, database: target.database || target.database_name || "" }))
+        .filter((target) => target.database);
+    }
+    if (!targets.length) {
+      Swal.fire("Target kasir belum ada", "Aktifkan minimal satu setting kasir sebelum sinkron.", "warning");
+      return;
+    }
     const confirmed = await Swal.fire({
       icon: "question",
       title: "Sinkron semua harga ke kasir?",
-      text: "Harga pusat akan disalin ke seluruh database kasir.",
+      text: `Harga pusat akan disalin ke ${targets.length} database kasir aktif.`,
       showCancelButton: true,
       confirmButtonText: "Mulai Sinkron",
       cancelButtonText: "Batal",
@@ -1837,6 +1967,16 @@ export default function MasterHargaJualPage() {
               className="inline-flex items-center justify-between gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm font-semibold text-sky-800 shadow-sm hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {kasirSyncRunning ? "Sinkronisasi..." : "Sinkron ke Kasir"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setKasirSettingOpen(true);
+                fetchKasirTargets();
+              }}
+              className="inline-flex items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800 shadow-sm hover:bg-emerald-100"
+            >
+              Setting Kasir
             </button>
             <button
               type="button"
@@ -3196,6 +3336,210 @@ export default function MasterHargaJualPage() {
               >
                 {eventSaving ? "Menyimpan..." : "Jadwalkan Event"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {kasirSettingOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-5xl rounded-2xl border border-gray-100 bg-white p-5 shadow-xl">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Konfigurasi Kasir</p>
+                <h2 className="text-lg font-bold text-gray-900">Setting Server Kasir</h2>
+                <p className="mt-1 text-sm text-gray-500">Target aktif akan dipakai oleh Sinkron ke Kasir dan sinkron user.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setKasirSettingOpen(false)}
+                className="rounded-lg border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+              >
+                Tutup
+              </button>
+            </div>
+
+            <div className="max-h-[62vh] overflow-auto rounded-xl border border-gray-200">
+              <table className="w-full min-w-[940px] text-left text-xs">
+                <thead className="bg-gray-50 text-gray-600">
+                  <tr>
+                    <th className="px-3 py-2">Aktif</th>
+                    <th className="px-3 py-2">Label</th>
+                    <th className="px-3 py-2">Server</th>
+                    <th className="px-3 py-2">Database</th>
+                    <th className="px-3 py-2">User</th>
+                    <th className="px-3 py-2">Password</th>
+                    <th className="px-3 py-2">Urut</th>
+                    <th className="px-3 py-2 text-right">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {kasirTargetsLoading ? (
+                    <tr>
+                      <td colSpan={8} className="px-3 py-6 text-center text-gray-500">Memuat setting kasir...</td>
+                    </tr>
+                  ) : kasirTargets.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="px-3 py-6 text-center text-gray-500">Belum ada setting kasir.</td>
+                    </tr>
+                  ) : (
+                    kasirTargets.map((target) => {
+                      const key = String(target.id || target.database);
+                      const draft = kasirTargetDrafts[key] || target;
+                      return (
+                        <tr key={key} className="align-top">
+                          <td className="px-3 py-2">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(draft.is_active)}
+                              onChange={(e) => setKasirTargetDrafts((prev) => ({
+                                ...prev,
+                                [key]: { ...draft, is_active: e.target.checked },
+                              }))}
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              value={draft.label}
+                              onChange={(e) => setKasirTargetDrafts((prev) => ({
+                                ...prev,
+                                [key]: { ...draft, label: e.target.value },
+                              }))}
+                              className="w-28 rounded-md border border-gray-200 px-2 py-1"
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              value={draft.server}
+                              onChange={(e) => setKasirTargetDrafts((prev) => ({
+                                ...prev,
+                                [key]: { ...draft, server: e.target.value },
+                              }))}
+                              className="w-52 rounded-md border border-gray-200 px-2 py-1"
+                              placeholder="server\\SQLEXPRESS"
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              value={draft.database || draft.database_name || ""}
+                              onChange={(e) => setKasirTargetDrafts((prev) => ({
+                                ...prev,
+                                [key]: { ...draft, database: e.target.value, database_name: e.target.value },
+                              }))}
+                              className="w-44 rounded-md border border-gray-200 px-2 py-1"
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              value={draft.db_user}
+                              onChange={(e) => setKasirTargetDrafts((prev) => ({
+                                ...prev,
+                                [key]: { ...draft, db_user: e.target.value },
+                              }))}
+                              className="w-24 rounded-md border border-gray-200 px-2 py-1"
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="password"
+                              value={draft.db_password || ""}
+                              onChange={(e) => setKasirTargetDrafts((prev) => ({
+                                ...prev,
+                                [key]: { ...draft, db_password: e.target.value },
+                              }))}
+                              className="w-36 rounded-md border border-gray-200 px-2 py-1"
+                              placeholder={target.db_password_set ? "Tetap sama" : "Password"}
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="number"
+                              value={draft.sort_order}
+                              onChange={(e) => setKasirTargetDrafts((prev) => ({
+                                ...prev,
+                                [key]: { ...draft, sort_order: Number(e.target.value || 0) },
+                              }))}
+                              className="w-16 rounded-md border border-gray-200 px-2 py-1"
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => testKasirTarget(target)}
+                                disabled={Boolean(testingKasirTarget[key])}
+                                className="rounded-md border border-sky-200 bg-sky-50 px-3 py-1 font-semibold text-sky-700 disabled:opacity-60"
+                              >
+                                {testingKasirTarget[key] ? "Test..." : "Test"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => saveKasirTarget(draft)}
+                                disabled={kasirTargetsSaving}
+                                className="rounded-md bg-emerald-600 px-3 py-1 font-semibold text-white disabled:opacity-60"
+                              >
+                                Simpan
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+              <p className="mb-2 text-sm font-bold text-gray-900">Tambah Target Kasir</p>
+              <div className="grid gap-2 md:grid-cols-[120px_1.3fr_1fr_100px_140px_80px_auto]">
+                <input
+                  value={newKasirTarget.label}
+                  onChange={(e) => setNewKasirTarget((prev) => ({ ...prev, label: e.target.value }))}
+                  className="rounded-md border border-gray-200 px-2 py-1.5 text-xs"
+                  placeholder="Kasir 5"
+                />
+                <input
+                  value={newKasirTarget.server}
+                  onChange={(e) => setNewKasirTarget((prev) => ({ ...prev, server: e.target.value }))}
+                  className="rounded-md border border-gray-200 px-2 py-1.5 text-xs"
+                  placeholder="server\\SQLEXPRESS"
+                />
+                <input
+                  value={newKasirTarget.database}
+                  onChange={(e) => setNewKasirTarget((prev) => ({ ...prev, database: e.target.value, database_name: e.target.value }))}
+                  className="rounded-md border border-gray-200 px-2 py-1.5 text-xs"
+                  placeholder="db_gwen_kasir5"
+                />
+                <input
+                  value={newKasirTarget.db_user}
+                  onChange={(e) => setNewKasirTarget((prev) => ({ ...prev, db_user: e.target.value }))}
+                  className="rounded-md border border-gray-200 px-2 py-1.5 text-xs"
+                  placeholder="sa"
+                />
+                <input
+                  type="password"
+                  value={newKasirTarget.db_password || ""}
+                  onChange={(e) => setNewKasirTarget((prev) => ({ ...prev, db_password: e.target.value }))}
+                  className="rounded-md border border-gray-200 px-2 py-1.5 text-xs"
+                  placeholder="password"
+                />
+                <input
+                  type="number"
+                  value={newKasirTarget.sort_order}
+                  onChange={(e) => setNewKasirTarget((prev) => ({ ...prev, sort_order: Number(e.target.value || 0) }))}
+                  className="rounded-md border border-gray-200 px-2 py-1.5 text-xs"
+                  placeholder="urut"
+                />
+                <button
+                  type="button"
+                  onClick={() => saveKasirTarget(newKasirTarget, true)}
+                  disabled={kasirTargetsSaving}
+                  className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                >
+                  Tambah
+                </button>
+              </div>
             </div>
           </div>
         </div>

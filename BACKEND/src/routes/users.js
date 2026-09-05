@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { createKasirPool, ensureKasirTargetsTable, getKasirTargets } from "../utils/kasir-targets.js";
 
 const hashPassword = (password) => {
   const iterations = 100000;
@@ -14,32 +15,7 @@ const hashPassword = (password) => {
 
 export default async function userRoutes(fastify) {
   const { sql, pool } = fastify.mssql;
-  const kasirTargets = [
-    { server: "gwenkasir1\\SQLEXPRESS", database: "db_gwen_kasir1" },
-    { server: "gwenkasir2\\SQLEXPRESS", database: "db_gwen_kasir2" },
-    { server: "gwenkasir3\\SQLEXPRESS", database: "db_gwen_kasir3" },
-    { server: "gwenkasir4\\SQLEXPRESS", database: "db_gwen_kasir4" },
-  ];
-
-  const createKasirPool = (target) =>
-    new sql.ConnectionPool({
-      server: target.server,
-      user: "sa",
-      password: "resmi12",
-      database: target.database,
-      requestTimeout: 60000,
-      connectionTimeout: 30000,
-      pool: {
-        max: 2,
-        min: 0,
-        idleTimeoutMillis: 30000,
-      },
-      options: {
-        encrypt: false,
-        trustServerCertificate: true,
-        useUTC: true,
-      },
-    });
+  await ensureKasirTargetsTable({ pool, sql });
 
   const syncUserToKasir = async (userId) => {
     const userRes = await pool
@@ -73,9 +49,10 @@ export default async function userRoutes(fastify) {
 
     const roleName = String(sourceUser.role_name || "").trim();
     const results = [];
+    const kasirTargets = await getKasirTargets({ pool, sql, activeOnly: true });
 
     for (const target of kasirTargets) {
-      const targetPool = createKasirPool(target);
+      const targetPool = createKasirPool({ sql, target, requestTimeout: 60000, connectionTimeout: 30000 });
       try {
         await targetPool.connect();
 
@@ -138,13 +115,13 @@ export default async function userRoutes(fastify) {
 
         results.push({
           server: target.server,
-          database: target.database,
+          database: target.database_name,
           ok: true,
         });
       } catch (err) {
         results.push({
           server: target.server,
-          database: target.database,
+          database: target.database_name,
           ok: false,
           error: err?.originalError?.info?.message || err?.message || "Gagal sync user",
         });

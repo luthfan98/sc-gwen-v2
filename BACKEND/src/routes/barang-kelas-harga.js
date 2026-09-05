@@ -1,31 +1,15 @@
+import { createKasirPool, ensureKasirTargetsTable, getKasirTargets, sanitizeKasirTarget } from "../utils/kasir-targets.js";
+
 export default async function barangKelasHargaRoutes(fastify) {
   const { sql, pool } = fastify.mssql;
   const now = () => new Date();
-  const kasirTargets = [
-    { label: "Kasir 1", server: "gwenkasir1\\SQLEXPRESS", database: "db_gwen_kasir1" },
-    { label: "Kasir 2", server: "gwenkasir2\\SQLEXPRESS", database: "db_gwen_kasir2" },
-    { label: "Kasir 3", server: "gwenkasir3\\SQLEXPRESS", database: "db_gwen_kasir3" },
-  ];
 
-  const createKasirPool = (target) =>
-    new sql.ConnectionPool({
-      server: target.server,
-      user: "sa",
-      password: "resmi12",
-      database: target.database,
-      requestTimeout: 30000,
-      connectionTimeout: 10000,
-      pool: {
-        max: 1,
-        min: 0,
-        idleTimeoutMillis: 10000,
-      },
-      options: {
-        encrypt: false,
-        trustServerCertificate: true,
-        useUTC: true,
-      },
-    });
+  await ensureKasirTargetsTable({ pool, sql });
+
+  const resolveKasirTarget = async (database) => {
+    const targets = await getKasirTargets({ pool, sql, activeOnly: true });
+    return targets.find((item) => (item.database_name || item.database) === database);
+  };
 
   const generateDetailCode = (prefix, index = 1) => {
     const date = new Date();
@@ -779,6 +763,127 @@ export default async function barangKelasHargaRoutes(fastify) {
     }
   });
 
+  fastify.get("/kasir-targets", async (_request, reply) => {
+    try {
+      const targets = await getKasirTargets({ pool, sql, activeOnly: false });
+      return reply.send(targets.map(sanitizeKasirTarget));
+    } catch (err) {
+      fastify.log.error({ err }, "Failed fetch kasir targets");
+      return reply.code(500).send({ message: "Gagal memuat setting kasir" });
+    }
+  });
+
+  fastify.post("/kasir-targets", async (request, reply) => {
+    const body = request.body || {};
+    const label = String(body.label || "").trim();
+    const server = String(body.server || "").trim();
+    const databaseName = String(body.database_name || body.database || "").trim();
+    const dbUser = String(body.db_user || "sa").trim() || "sa";
+    const dbPassword = String(body.db_password || "").trim();
+    const isActive = body.is_active === false || body.is_active === 0 ? 0 : 1;
+    const sortOrder = Number(body.sort_order || 0);
+    if (!label || !server || !databaseName || !dbPassword) {
+      return reply.code(400).send({ message: "Label, server, database, dan password wajib diisi" });
+    }
+    try {
+      await ensureKasirTargetsTable({ pool, sql });
+      await pool
+        .request()
+        .input("label", sql.VarChar(100), label)
+        .input("server", sql.VarChar(255), server)
+        .input("database_name", sql.VarChar(255), databaseName)
+        .input("db_user", sql.VarChar(100), dbUser)
+        .input("db_password", sql.VarChar(255), dbPassword)
+        .input("is_active", sql.Bit, isActive)
+        .input("sort_order", sql.Int, Number.isFinite(sortOrder) ? sortOrder : 0)
+        .query(`
+          INSERT INTO dbo.GWEN_m_kasir_sync_target (
+            label, server, database_name, db_user, db_password, is_active, sort_order
+          ) VALUES (
+            @label, @server, @database_name, @db_user, @db_password, @is_active, @sort_order
+          );
+        `);
+      const targets = await getKasirTargets({ pool, sql, activeOnly: false });
+      return reply.send({ message: "Setting kasir ditambahkan", targets: targets.map(sanitizeKasirTarget) });
+    } catch (err) {
+      fastify.log.error({ err }, "Failed create kasir target");
+      if (err?.number === 2601 || err?.number === 2627) {
+        return reply.code(409).send({ message: "Database kasir sudah terdaftar" });
+      }
+      return reply.code(500).send({ message: "Gagal menambahkan setting kasir" });
+    }
+  });
+
+  fastify.put("/kasir-targets/:id", async (request, reply) => {
+    const id = Number(request.params?.id || 0);
+    const body = request.body || {};
+    const label = String(body.label || "").trim();
+    const server = String(body.server || "").trim();
+    const databaseName = String(body.database_name || body.database || "").trim();
+    const dbUser = String(body.db_user || "sa").trim() || "sa";
+    const dbPassword = String(body.db_password || "").trim();
+    const isActive = body.is_active === false || body.is_active === 0 ? 0 : 1;
+    const sortOrder = Number(body.sort_order || 0);
+    if (!id) return reply.code(400).send({ message: "ID setting kasir wajib diisi" });
+    if (!label || !server || !databaseName) {
+      return reply.code(400).send({ message: "Label, server, dan database wajib diisi" });
+    }
+    try {
+      await ensureKasirTargetsTable({ pool, sql });
+      const result = await pool
+        .request()
+        .input("id", sql.Int, id)
+        .input("label", sql.VarChar(100), label)
+        .input("server", sql.VarChar(255), server)
+        .input("database_name", sql.VarChar(255), databaseName)
+        .input("db_user", sql.VarChar(100), dbUser)
+        .input("db_password", sql.VarChar(255), dbPassword || null)
+        .input("is_active", sql.Bit, isActive)
+        .input("sort_order", sql.Int, Number.isFinite(sortOrder) ? sortOrder : 0)
+        .query(`
+          UPDATE dbo.GWEN_m_kasir_sync_target
+          SET label = @label,
+              server = @server,
+              database_name = @database_name,
+              db_user = @db_user,
+              db_password = COALESCE(@db_password, db_password),
+              is_active = @is_active,
+              sort_order = @sort_order,
+              updated_at = SYSDATETIME()
+          WHERE id = @id;
+        `);
+      if (!result.rowsAffected?.[0]) return reply.code(404).send({ message: "Setting kasir tidak ditemukan" });
+      const targets = await getKasirTargets({ pool, sql, activeOnly: false });
+      return reply.send({ message: "Setting kasir diperbarui", targets: targets.map(sanitizeKasirTarget) });
+    } catch (err) {
+      fastify.log.error({ err }, "Failed update kasir target");
+      if (err?.number === 2601 || err?.number === 2627) {
+        return reply.code(409).send({ message: "Database kasir sudah terdaftar" });
+      }
+      return reply.code(500).send({ message: "Gagal update setting kasir" });
+    }
+  });
+
+  fastify.post("/kasir-targets/:id/test", async (request, reply) => {
+    const id = Number(request.params?.id || 0);
+    if (!id) return reply.code(400).send({ message: "ID setting kasir wajib diisi" });
+    let targetPool;
+    try {
+      const targets = await getKasirTargets({ pool, sql, activeOnly: false });
+      const target = targets.find((item) => Number(item.id) === id);
+      if (!target) return reply.code(404).send({ message: "Setting kasir tidak ditemukan" });
+      targetPool = createKasirPool({ sql, target, requestTimeout: 10000, connectionTimeout: 5000 });
+      await targetPool.connect();
+      const res = await targetPool.request().query("SELECT DB_NAME() AS database_name, @@SERVERNAME AS server_name;");
+      return reply.send({ message: "Koneksi kasir berhasil", target: sanitizeKasirTarget(target), database: res.recordset?.[0] || null });
+    } catch (err) {
+      fastify.log.warn({ err }, "Failed test kasir target");
+      return reply.code(500).send({ message: err?.originalError?.info?.message || err?.message || "Gagal test koneksi kasir" });
+    } finally {
+      if (targetPool) await targetPool.close().catch(() => {});
+    }
+  });
+
   fastify.get("/kasir-prices", async (request, reply) => {
     const kodeBarangVariant = String(request.query?.kode_barang_variant || "").trim();
     const barcodeVarian = String(request.query?.barcode_varian || "").trim();
@@ -787,9 +892,10 @@ export default async function barangKelasHargaRoutes(fastify) {
       return reply.code(400).send({ message: "kode_barang_variant atau barcode_varian wajib diisi" });
     }
 
+    const kasirTargets = await getKasirTargets({ pool, sql, activeOnly: true });
     const results = [];
     for (const target of kasirTargets) {
-      const targetPool = createKasirPool(target);
+      const targetPool = createKasirPool({ sql, target });
       try {
         await targetPool.connect();
         const result = await targetPool
@@ -864,7 +970,7 @@ export default async function barangKelasHargaRoutes(fastify) {
         results.push({
           label: target.label,
           server: target.server,
-          database: target.database,
+          database: target.database_name,
           status: "ok",
           rows: result.recordset || [],
         });
@@ -873,7 +979,7 @@ export default async function barangKelasHargaRoutes(fastify) {
         results.push({
           label: target.label,
           server: target.server,
-          database: target.database,
+          database: target.database_name,
           status: "error",
           message: err?.message || "Gagal koneksi/query kasir",
           rows: [],
@@ -891,7 +997,7 @@ export default async function barangKelasHargaRoutes(fastify) {
     const kodeBarangVariant = String(body.kode_barang_variant || "").trim();
     const database = String(body.database || "").trim();
     const updatedBy = String(body.updated_by || "Admin").trim() || "Admin";
-    const target = kasirTargets.find((item) => item.database === database);
+    const target = await resolveKasirTarget(database);
 
     if (!kodeBarangVariant) {
       return reply.code(400).send({ message: "kode_barang_variant wajib diisi" });
@@ -941,7 +1047,7 @@ export default async function barangKelasHargaRoutes(fastify) {
         return reply.code(404).send({ message: "Harga pusat tidak ditemukan" });
       }
 
-      const targetPool = createKasirPool(target);
+      const targetPool = createKasirPool({ sql, target });
       await targetPool.connect();
       const tx = new sql.Transaction(targetPool);
       try {
@@ -1040,7 +1146,7 @@ export default async function barangKelasHargaRoutes(fastify) {
   fastify.post("/kasir-prices/sync-all", async (request, reply) => {
     const database = String(request.body?.database || "").trim();
     const updatedBy = String(request.body?.updated_by || "Admin").trim() || "Admin";
-    const target = kasirTargets.find((item) => item.database === database);
+    const target = await resolveKasirTarget(database);
     if (!target) return reply.code(400).send({ message: "Database kasir tidak valid" });
 
     let targetPool;
@@ -1052,7 +1158,7 @@ export default async function barangKelasHargaRoutes(fastify) {
       Connection: "keep-alive",
     });
     const sendEvent = (event) => reply.raw.write(`${JSON.stringify(event)}\n`);
-    sendEvent({ type: "start", total_targets: 3 });
+    sendEvent({ type: "start", total_targets: 1 });
     try {
       const central = await pool.request().query(`
         WITH ranked AS (
@@ -1071,8 +1177,8 @@ export default async function barangKelasHargaRoutes(fastify) {
                berlaku_mulai, is_active, nama_barang, nama_varian, barcode_varian
         FROM ranked WHERE rn = 1;`);
       const rows = central.recordset || [];
-      targetPool = createKasirPool(target);
-      sendEvent({ type: "kasir_start", database, label: target.label, total: rows.length });
+      targetPool = createKasirPool({ sql, target });
+      sendEvent({ type: "kasir_start", database: target.database_name, label: target.label, total: rows.length });
       await targetPool.connect();
       const tx = new sql.Transaction(targetPool);
       await tx.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
@@ -1095,7 +1201,7 @@ export default async function barangKelasHargaRoutes(fastify) {
           if ((syncTable.rows.length % 500 === 0) || syncTable.rows.length === rows.length) {
             sendEvent({
               type: "progress",
-              database,
+              database: target.database_name,
               processed: syncTable.rows.length,
               total: rows.length,
               current_item: row.nama_varian || row.nama_barang || row.kode_barang_variant,
@@ -1103,7 +1209,7 @@ export default async function barangKelasHargaRoutes(fastify) {
             });
           }
         }
-        sendEvent({ type: "merge_start", database, label: target.label, processed: rows.length, total: rows.length });
+        sendEvent({ type: "merge_start", database: target.database_name, label: target.label, processed: rows.length, total: rows.length });
         await new sql.Request(tx).bulk(syncTable);
         await new sql.Request(tx)
           .input("updated_by", sql.VarChar(100), updatedBy)
@@ -1125,8 +1231,8 @@ export default async function barangKelasHargaRoutes(fastify) {
                       source.harga_6, source.harga_12, source.berlaku_mulai, source.is_active,
                       @updated_by, SYSUTCDATETIME());`);
         await tx.commit();
-        sendEvent({ type: "kasir_complete", database, label: target.label, processed: rows.length, total: rows.length, message: "Semua harga kasir tersinkron" });
-        sendEvent({ type: "complete", database, label: target.label, processed: rows.length, total: rows.length });
+        sendEvent({ type: "kasir_complete", database: target.database_name, label: target.label, processed: rows.length, total: rows.length, message: "Semua harga kasir tersinkron" });
+        sendEvent({ type: "complete", database: target.database_name, label: target.label, processed: rows.length, total: rows.length });
         reply.raw.end();
         return;
       } catch (err) {
@@ -1135,7 +1241,7 @@ export default async function barangKelasHargaRoutes(fastify) {
       }
     } catch (err) {
       fastify.log.error({ err, target }, "Failed bulk sync kasir prices");
-      sendEvent({ type: "error", database, label: target.label, message: err?.message || "Gagal sinkron semua harga kasir" });
+      sendEvent({ type: "error", database: target.database_name, label: target.label, message: err?.message || "Gagal sinkron semua harga kasir" });
       reply.raw.end();
       return;
     } finally {

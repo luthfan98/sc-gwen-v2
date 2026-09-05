@@ -310,8 +310,14 @@ export default async function kontrabonRoutes(fastify) {
           GROUP BY no_invoice
         ),
         rekap AS (
-          SELECT DISTINCT nokontrabon
-          FROM dbo.GWEN_tbl_rekap
+          SELECT
+            tr.nokontrabon,
+            MAX(wr.tgl_rekap) AS tgl_rekap
+          FROM dbo.GWEN_tbl_rekap tr
+          JOIN dbo.GWEN_wadah_rekap wr
+            ON wr.id = tr.id_wadah_rekap
+          WHERE ISNULL(wr.status, 1) = 1
+          GROUP BY tr.nokontrabon
         )
         SELECT
           k.id,
@@ -343,6 +349,7 @@ export default async function kontrabonRoutes(fastify) {
           ISNULL(ta.jumlah_pengadaan, 0) AS jumlah_pengadaan,
           ISNULL(ta.total_tagihan_aktif, 0) AS total_tagihan_aktif,
           CASE WHEN tr.nokontrabon IS NULL THEN 0 ELSE 1 END AS is_in_rekap,
+          tr.tgl_rekap,
           ta.kode_t_tagihan_list,
           ta.no_faktur_supplier_list
         FROM dbo.GWEN_t_kontrabon k

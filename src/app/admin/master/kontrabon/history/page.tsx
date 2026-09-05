@@ -677,6 +677,7 @@ export default function HistoryKontrabonPage() {
         formatCurrency(getNominalTotal(item)),
         dateText(item.tgl_faktur),
         dateText(item.tgl_kontrabon),
+        dateText(item.tgl_rekap),
         dateText(item.tgl_bayar),
       ]
         .map(normalize)
@@ -866,7 +867,7 @@ export default function HistoryKontrabonPage() {
         </div>
 
         <div className="w-full max-h-[520px] max-w-[calc(100vw-350px)] overflow-y-auto overflow-x-auto">
-          <table className="w-full min-w-[1200px] text-left text-sm">
+          <table className="w-full min-w-[1280px] text-left text-sm">
             <thead className="bg-gray-50 text-gray-600">
               <tr className="uppercase tracking-wide text-xs">
                 <th className="px-4 py-3">Aksi</th>
@@ -875,6 +876,7 @@ export default function HistoryKontrabonPage() {
                 <th className="px-4 py-3">No Purchase</th>
                 <th className="px-4 py-3">Tanggal Faktur</th>
                 <th className="px-4 py-3">Tanggal Kontrabon</th>
+                <th className="px-4 py-3">Tanggal Rekap</th>
                 <th className="px-4 py-3">Supplier</th>
                 <th className="px-4 py-3">Nominal Faktur</th>
                 <th className="px-4 py-3">Nominal Tambahan</th>
@@ -888,7 +890,7 @@ export default function HistoryKontrabonPage() {
             <tbody className="divide-y divide-gray-100">
               {filteredKontrabonItems.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-6 text-center text-gray-500" colSpan={14}>
+                  <td className="px-4 py-6 text-center text-gray-500" colSpan={15}>
                     {kontrabonLoading ? "Memuat data..." : "Belum ada data history kontrabon."}
                   </td>
                 </tr>
@@ -935,6 +937,9 @@ export default function HistoryKontrabonPage() {
                       {row.tgl_kontrabon
                         ? new Date(row.tgl_kontrabon).toLocaleDateString("id-ID")
                         : "-"}
+                    </td>
+                    <td className="px-4 py-3 text-gray-700 break-words">
+                      {row.tgl_rekap ? new Date(row.tgl_rekap).toLocaleDateString("id-ID") : "-"}
                     </td>
                     <td className="px-4 py-3 text-gray-700">
                       {supplierNameMap.get(String(row.kode_supplier || "").trim()) ||

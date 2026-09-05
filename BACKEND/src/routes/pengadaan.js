@@ -1139,16 +1139,34 @@ export default async function pengadaanRoutes(fastify) {
 
         await new sql.Request(tx)
           .input("kode_d_pengadaan", sql.VarChar(255), kode_d_pengadaan)
+          .input("kode_t_pengadaan", sql.VarChar(255), String(kode).trim())
           .input("qty", sql.Decimal(20, 2), qty)
           .input("updated_by", sql.VarChar(255), updated_by)
           .input("updated_at", sql.DateTime, now)
           .query(
             `
-            UPDATE dbo.GWEN_d_penerimaan_pengadaan
-            SET jml_baik_dikirim = @qty,
-                updated_by = @updated_by,
-                updated_at = @updated_at
-            WHERE kode_d_pengadaan = @kode_d_pengadaan;
+            UPDATE dp
+            SET dp.kode_d_pengadaan = @kode_d_pengadaan,
+                dp.jml_baik_dikirim = @qty,
+                dp.jml_baik_diterima = CASE
+                  WHEN ISNULL(dp.jml_baik_diterima, 0) > @qty THEN @qty
+                  ELSE dp.jml_baik_diterima
+                END,
+                dp.updated_by = @updated_by,
+                dp.updated_at = @updated_at
+            FROM dbo.GWEN_d_penerimaan_pengadaan dp
+            JOIN dbo.GWEN_t_penerimaan_pengadaan tp
+              ON tp.kode_t_penerimaan_pengadaan = dp.kode_t_penerimaan_pengadaan
+            JOIN dbo.GWEN_d_pengadaan pg
+              ON pg.kode_d_pengadaan = @kode_d_pengadaan
+            WHERE tp.kode_t_pengadaan = @kode_t_pengadaan
+              AND (
+                dp.kode_d_pengadaan = @kode_d_pengadaan
+                OR (
+                  (dp.kode_d_pengadaan IS NULL OR LTRIM(RTRIM(dp.kode_d_pengadaan)) = '')
+                  AND dp.kode_barang COLLATE DATABASE_DEFAULT = pg.kode_barang_variant COLLATE DATABASE_DEFAULT
+                )
+              );
           `
           );
       }

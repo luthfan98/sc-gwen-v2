@@ -5,6 +5,56 @@ export default async function penerimaanPengadaanRoutes(fastify) {
 
   const generateStockCode = (prefix) => `${prefix}.${wibStamp()}`;
 
+  const writeActivityLog = async ({
+    username,
+    actionName,
+    tableName,
+    entityKey,
+    referenceNo,
+    description,
+    status,
+    kodeBarangVariant,
+    oldData,
+    newData,
+    extraData,
+  }) => {
+    try {
+      await pool
+        .request()
+        .input("activity_time", sql.DateTime, nowWib())
+        .input("source_app", sql.VarChar(100), "GWEN_PANEL")
+        .input("username", sql.VarChar(255), username || "Admin")
+        .input("module_name", sql.VarChar(100), "PENERIMAAN PENGADAAN")
+        .input("menu_name", sql.VarChar(100), "Detail Penerimaan Pengadaan")
+        .input("activity_type", sql.VarChar(100), "PROCUREMENT")
+        .input("action_name", sql.VarChar(100), actionName)
+        .input("table_name", sql.VarChar(128), tableName)
+        .input("entity_key", sql.VarChar(255), entityKey)
+        .input("reference_no", sql.VarChar(255), referenceNo)
+        .input("description", sql.VarChar(500), description)
+        .input("status", sql.VarChar(100), status || null)
+        .input("kode_barang_variant", sql.VarChar(255), kodeBarangVariant || null)
+        .input("old_data_json", sql.NVarChar(sql.MAX), oldData ? JSON.stringify(oldData) : null)
+        .input("new_data_json", sql.NVarChar(sql.MAX), newData ? JSON.stringify(newData) : null)
+        .input("extra_data_json", sql.NVarChar(sql.MAX), extraData ? JSON.stringify(extraData) : null)
+        .query(
+          `
+          INSERT INTO dbo.sys_activity_log (
+            activity_time, source_app, username, module_name, menu_name, activity_type, action_name,
+            table_name, entity_key, reference_no, description, status, kode_barang_variant,
+            old_data_json, new_data_json, extra_data_json, created_at
+          ) VALUES (
+            @activity_time, @source_app, @username, @module_name, @menu_name, @activity_type, @action_name,
+            @table_name, @entity_key, @reference_no, @description, @status, @kode_barang_variant,
+            @old_data_json, @new_data_json, @extra_data_json, @activity_time
+          );
+        `
+        );
+    } catch (err) {
+      fastify.log.warn({ err }, "Failed write penerimaan pengadaan activity log");
+    }
+  };
+
   const generatePenerimaanDetailCode = async ({ prefix, tx, padLength = 6, separator = "." }) => {
     const req = tx ? new sql.Request(tx) : pool.request();
     const res = await req
@@ -924,14 +974,73 @@ export default async function penerimaanPengadaanRoutes(fastify) {
       return reply.code(400).send({ message: "kode_t_pengadaan dan kode_d_penerimaan_pengadaan wajib diisi" });
     }
     try {
+      const qtyBaik = Number(body.jml_baik_diterima ?? 0);
+      const qtyRusak = Number(body.jml_rusak_diterima ?? 0);
+      const limitRes = await pool
+        .request()
+        .input("kode_t_pengadaan", sql.VarChar(255), String(kode).trim())
+        .input("kode_d_penerimaan_pengadaan", sql.VarChar(255), kodeDetail)
+        .query(
+          `
+          SELECT TOP 1
+            tp.kode_t_penerimaan_pengadaan,
+            dp.kode_d_penerimaan_pengadaan,
+            dp.kode_barang,
+            dp.jml_baik_dikirim AS old_jml_baik_dikirim,
+            dp.jml_baik_diterima AS old_jml_baik_diterima,
+            dp.jml_rusak_diterima AS old_jml_rusak_diterima,
+            dp.catatan AS old_catatan,
+            COALESCE(pg.kode_d_pengadaan, pg2.kode_d_pengadaan) AS kode_d_pengadaan,
+            COALESCE(pg.qty, pg2.qty) AS qty_pengadaan,
+            COALESCE(pg.is_active, pg2.is_active, 1) AS is_active
+          FROM dbo.GWEN_d_penerimaan_pengadaan dp
+          JOIN dbo.GWEN_t_penerimaan_pengadaan tp
+            ON tp.kode_t_penerimaan_pengadaan = dp.kode_t_penerimaan_pengadaan
+          LEFT JOIN dbo.GWEN_d_pengadaan pg
+            ON pg.kode_d_pengadaan = dp.kode_d_pengadaan
+          OUTER APPLY (
+            SELECT TOP 1 p2.kode_d_pengadaan, p2.qty, p2.is_active
+            FROM dbo.GWEN_d_pengadaan p2
+            WHERE p2.kode_t_pengadaan = tp.kode_t_pengadaan
+              AND p2.kode_barang_variant COLLATE DATABASE_DEFAULT = dp.kode_barang COLLATE DATABASE_DEFAULT
+              AND ISNULL(p2.is_active, 1) = 1
+            ORDER BY p2.updated_at DESC, p2.created_at DESC, p2.kode_d_pengadaan DESC
+          ) pg2
+          WHERE tp.kode_t_pengadaan = @kode_t_pengadaan
+            AND dp.kode_d_penerimaan_pengadaan = @kode_d_penerimaan_pengadaan;
+        `
+        );
+
+      const limit = limitRes.recordset?.[0];
+      if (!limit) {
+        return reply.code(404).send({ message: "Detail penerimaan tidak ditemukan" });
+      }
+      if (Number(limit.is_active ?? 1) === 0) {
+        return reply.code(400).send({ message: "Item purchase nonaktif, tidak bisa diterima" });
+      }
+      const qtyPengadaan = Number(limit.qty_pengadaan ?? 0);
+      const updatedBy = String(body.updated_by || "Admin").trim() || "Admin";
+      if (!limit.kode_d_pengadaan && qtyBaik + qtyRusak > 0) {
+        return reply.code(400).send({ message: "Detail purchase untuk item penerimaan ini tidak ditemukan" });
+      }
+      if (limit.kode_d_pengadaan && qtyBaik + qtyRusak > qtyPengadaan) {
+        return reply.code(400).send({
+          message: "Qty diterima melebihi qty purchase",
+          qty_pengadaan: qtyPengadaan,
+          qty_diterima: qtyBaik,
+          qty_rusak: qtyRusak,
+        });
+      }
+
       await pool
         .request()
         .input("kode_d_penerimaan_pengadaan", sql.VarChar(255), kodeDetail)
         .input("jml_baik_dikirim", sql.Decimal(20, 2), Number(body.jml_baik_dikirim ?? 0))
-        .input("jml_baik_diterima", sql.Decimal(20, 2), Number(body.jml_baik_diterima ?? 0))
-        .input("jml_rusak_diterima", sql.Decimal(20, 2), Number(body.jml_rusak_diterima ?? 0))
+        .input("jml_baik_diterima", sql.Decimal(20, 2), qtyBaik)
+        .input("jml_rusak_diterima", sql.Decimal(20, 2), qtyRusak)
+        .input("kode_d_pengadaan", sql.VarChar(255), limit.kode_d_pengadaan || null)
         .input("catatan", sql.VarChar(255), body.catatan || null)
-        .input("updated_by", sql.VarChar(255), body.updated_by || "Admin")
+        .input("updated_by", sql.VarChar(255), updatedBy)
         .input("updated_at", sql.DateTime, nowWib())
         .query(
           `
@@ -939,12 +1048,41 @@ export default async function penerimaanPengadaanRoutes(fastify) {
           SET jml_baik_dikirim = @jml_baik_dikirim,
               jml_baik_diterima = @jml_baik_diterima,
               jml_rusak_diterima = @jml_rusak_diterima,
+              kode_d_pengadaan = COALESCE(NULLIF(kode_d_pengadaan, ''), @kode_d_pengadaan),
               catatan = @catatan,
               updated_by = @updated_by,
               updated_at = @updated_at
           WHERE kode_d_penerimaan_pengadaan = @kode_d_penerimaan_pengadaan;
         `
         );
+      await writeActivityLog({
+        username: updatedBy,
+        actionName: "UPDATE_QTY_TERIMA",
+        tableName: "GWEN_d_penerimaan_pengadaan",
+        entityKey: kodeDetail,
+        referenceNo: limit.kode_t_penerimaan_pengadaan,
+        description: "Detail penerimaan pengadaan diperbarui",
+        status: "UPDATE",
+        kodeBarangVariant: limit.kode_barang,
+        oldData: {
+          kode_d_pengadaan: limit.kode_d_pengadaan || null,
+          jml_baik_dikirim: Number(limit.old_jml_baik_dikirim ?? 0),
+          jml_baik_diterima: Number(limit.old_jml_baik_diterima ?? 0),
+          jml_rusak_diterima: Number(limit.old_jml_rusak_diterima ?? 0),
+          catatan: limit.old_catatan || null,
+        },
+        newData: {
+          kode_d_pengadaan: limit.kode_d_pengadaan || null,
+          jml_baik_dikirim: Number(body.jml_baik_dikirim ?? 0),
+          jml_baik_diterima: qtyBaik,
+          jml_rusak_diterima: qtyRusak,
+          catatan: body.catatan || null,
+        },
+        extraData: {
+          kode_t_pengadaan: String(kode).trim(),
+          qty_pengadaan: qtyPengadaan,
+        },
+      });
       return reply.send({ message: "Item diperbarui" });
     } catch (err) {
       fastify.log.error({ err }, "Failed update penerimaan item");
@@ -1025,26 +1163,87 @@ export default async function penerimaanPengadaanRoutes(fastify) {
         .query(
           `
           SELECT
+            d.kode_d_penerimaan_pengadaan,
             d.kode_barang,
+            COALESCE(p.kode_d_pengadaan, p2.kode_d_pengadaan) AS kode_d_pengadaan,
+            COALESCE(p.qty, p2.qty, 0) AS qty_pengadaan,
             d.jml_baik_diterima,
             d.jml_rusak_diterima,
-            d.satuan_jml_baik
+            d.satuan_jml_baik,
+            COALESCE(p.is_active, p2.is_active, 1) AS is_active
           FROM dbo.GWEN_d_penerimaan_pengadaan d
           LEFT JOIN dbo.GWEN_t_penerimaan_pengadaan t
             ON t.kode_t_penerimaan_pengadaan = d.kode_t_penerimaan_pengadaan
           LEFT JOIN dbo.GWEN_d_pengadaan p
             ON p.kode_d_pengadaan = d.kode_d_pengadaan
           OUTER APPLY (
-            SELECT TOP 1 p2.is_active
+            SELECT TOP 1 p2.kode_d_pengadaan, p2.qty, p2.is_active
             FROM dbo.GWEN_d_pengadaan p2
             WHERE p2.kode_t_pengadaan = t.kode_t_pengadaan
               AND p2.kode_barang_variant = d.kode_barang
+              AND ISNULL(p2.is_active, 1) = 1
             ORDER BY p2.updated_at DESC, p2.created_at DESC
           ) p2
           WHERE d.kode_t_penerimaan_pengadaan = @kode_t_penerimaan_pengadaan
             AND COALESCE(p.is_active, p2.is_active, 1) = 1;
         `
         );
+
+      const overReceived = (detailRes.recordset || [])
+        .map((row) => {
+          const qtyBaik = Number(row.jml_baik_diterima ?? 0);
+          const qtyRusak = Number(row.jml_rusak_diterima ?? 0);
+          const qtyPengadaan = Number(row.qty_pengadaan ?? 0);
+          return {
+            kode_d_penerimaan_pengadaan: row.kode_d_penerimaan_pengadaan,
+            kode_d_pengadaan: row.kode_d_pengadaan,
+            kode_barang_variant: row.kode_barang,
+            qty_pengadaan: qtyPengadaan,
+            qty_diterima: qtyBaik,
+            qty_rusak: qtyRusak,
+          };
+        })
+        .filter((row) => row.kode_d_pengadaan && row.qty_diterima + row.qty_rusak > row.qty_pengadaan);
+      const missingPurchase = (detailRes.recordset || [])
+        .map((row) => ({
+          kode_d_penerimaan_pengadaan: row.kode_d_penerimaan_pengadaan,
+          kode_barang_variant: row.kode_barang,
+          qty_diterima: Number(row.jml_baik_diterima ?? 0),
+          qty_rusak: Number(row.jml_rusak_diterima ?? 0),
+          kode_d_pengadaan: row.kode_d_pengadaan,
+        }))
+        .filter((row) => !row.kode_d_pengadaan && row.qty_diterima + row.qty_rusak > 0);
+
+      if (missingPurchase.length) {
+        await tx.rollback();
+        return reply.code(400).send({
+          message: "Submit ditolak: ada item penerimaan yang tidak terhubung ke detail purchase",
+          items: missingPurchase,
+        });
+      }
+
+      if (overReceived.length) {
+        await tx.rollback();
+        return reply.code(400).send({
+          message: "Submit ditolak: ada qty penerimaan melebihi qty purchase",
+          items: overReceived,
+        });
+      }
+
+      for (const row of detailRes.recordset || []) {
+        const kodeDetail = String(row.kode_d_penerimaan_pengadaan || "").trim();
+        const kodeDetailPengadaan = String(row.kode_d_pengadaan || "").trim();
+        if (!kodeDetail || !kodeDetailPengadaan) continue;
+        await new sql.Request(tx)
+          .input("kode_d_penerimaan_pengadaan", sql.VarChar(255), kodeDetail)
+          .input("kode_d_pengadaan", sql.VarChar(255), kodeDetailPengadaan)
+          .query(`
+            UPDATE dbo.GWEN_d_penerimaan_pengadaan
+            SET kode_d_pengadaan = @kode_d_pengadaan
+            WHERE kode_d_penerimaan_pengadaan = @kode_d_penerimaan_pengadaan
+              AND (kode_d_pengadaan IS NULL OR LTRIM(RTRIM(kode_d_pengadaan)) = '');
+          `);
+      }
 
       for (const row of detailRes.recordset || []) {
         const kode_barang_variant = String(row.kode_barang || "").trim();
@@ -1768,9 +1967,10 @@ export default async function penerimaanPengadaanRoutes(fastify) {
           `
           SELECT TOP 1
             d.kode_barang,
-            d.kode_d_pengadaan,
+            COALESCE(p.kode_d_pengadaan, p2.kode_d_pengadaan) AS kode_d_pengadaan,
             d.jml_baik_dikirim,
             d.satuan_jml_baik,
+            COALESCE(p.qty, p2.qty, 0) AS qty_pengadaan,
             COALESCE(p.is_active, p2.is_active, 1) AS is_active
           FROM dbo.GWEN_d_penerimaan_pengadaan d
           LEFT JOIN dbo.GWEN_d_pengadaan p
@@ -1778,10 +1978,11 @@ export default async function penerimaanPengadaanRoutes(fastify) {
           LEFT JOIN dbo.GWEN_t_penerimaan_pengadaan t
             ON t.kode_t_penerimaan_pengadaan = d.kode_t_penerimaan_pengadaan
           OUTER APPLY (
-            SELECT TOP 1 p2.is_active
+            SELECT TOP 1 p2.kode_d_pengadaan, p2.qty, p2.is_active
             FROM dbo.GWEN_d_pengadaan p2
             WHERE p2.kode_t_pengadaan = t.kode_t_pengadaan
               AND p2.kode_barang_variant = d.kode_barang
+              AND ISNULL(p2.is_active, 1) = 1
             ORDER BY p2.updated_at DESC, p2.created_at DESC
           ) p2
           WHERE d.kode_d_penerimaan_pengadaan = @kode_d_penerimaan_pengadaan;
@@ -1797,15 +1998,22 @@ export default async function penerimaanPengadaanRoutes(fastify) {
         return reply.code(400).send({ message: "Item nonaktif, tidak bisa disamakan" });
       }
 
-      const qtyDikirim = Number(detail.jml_baik_dikirim ?? 0);
+      const qtyDikirim = Number(detail.qty_pengadaan ?? detail.jml_baik_dikirim ?? 0);
       const kode_barang_variant = String(detail.kode_barang || "").trim();
+      const kode_d_pengadaan = String(detail.kode_d_pengadaan || "").trim();
       if (!kode_barang_variant) {
         await tx.rollback();
         return reply.code(400).send({ message: "Kode barang varian tidak valid" });
       }
+      if (!kode_d_pengadaan) {
+        await tx.rollback();
+        return reply.code(400).send({ message: "Detail purchase untuk item ini tidak ditemukan" });
+      }
 
       await new sql.Request(tx)
         .input("kode_d_penerimaan_pengadaan", sql.VarChar(255), kodeDetail)
+        .input("kode_d_pengadaan", sql.VarChar(255), kode_d_pengadaan)
+        .input("jml_baik_dikirim", sql.Decimal(20, 2), qtyDikirim)
         .input("jml_baik_diterima", sql.Decimal(20, 2), qtyDikirim)
         .input("jml_rusak_diterima", sql.Decimal(20, 2), 0)
         .input("updated_by", sql.VarChar(255), updated_by)
@@ -1813,7 +2021,9 @@ export default async function penerimaanPengadaanRoutes(fastify) {
         .query(
           `
           UPDATE dbo.GWEN_d_penerimaan_pengadaan
-          SET jml_baik_diterima = @jml_baik_diterima,
+          SET kode_d_pengadaan = COALESCE(NULLIF(kode_d_pengadaan, ''), @kode_d_pengadaan),
+              jml_baik_dikirim = @jml_baik_dikirim,
+              jml_baik_diterima = @jml_baik_diterima,
               jml_rusak_diterima = @jml_rusak_diterima,
               updated_by = @updated_by,
               updated_at = @updated_at
@@ -1952,6 +2162,7 @@ export default async function penerimaanPengadaanRoutes(fastify) {
         if (existing?.kode_d_penerimaan_pengadaan) {
           await new sql.Request(tx)
             .input("kode_d_penerimaan_pengadaan", sql.VarChar(255), existing.kode_d_penerimaan_pengadaan)
+            .input("kode_d_pengadaan", sql.VarChar(255), kode_d_pengadaan || null)
             .input("jml_baik_dikirim", sql.Decimal(20, 2), qtyDikirim)
             .input("satuan_jml_baik", sql.VarChar(255), satuan)
             .input("satuan_jml_rusak", sql.VarChar(255), satuan)
@@ -1960,7 +2171,12 @@ export default async function penerimaanPengadaanRoutes(fastify) {
             .query(
               `
               UPDATE dbo.GWEN_d_penerimaan_pengadaan
-              SET jml_baik_dikirim = @jml_baik_dikirim,
+              SET kode_d_pengadaan = COALESCE(NULLIF(kode_d_pengadaan, ''), @kode_d_pengadaan),
+                  jml_baik_dikirim = @jml_baik_dikirim,
+                  jml_baik_diterima = CASE
+                    WHEN ISNULL(jml_baik_diterima, 0) > @jml_baik_dikirim THEN @jml_baik_dikirim
+                    ELSE jml_baik_diterima
+                  END,
                   satuan_jml_baik = @satuan_jml_baik,
                   satuan_jml_rusak = @satuan_jml_rusak,
                   updated_by = @updated_by,
