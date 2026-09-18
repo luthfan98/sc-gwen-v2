@@ -1,6 +1,6 @@
 const DEFAULT_KASIR_TARGETS = [
   { label: "Kasir 1", server: "gwenkasir1\\SQLEXPRESS", database_name: "db_gwen_kasir1", db_user: "sa", db_password: "resmi12", is_active: 1, sort_order: 1 },
-  { label: "Kasir 2", server: "gwenkasir2\\SQLEXPRESS", database_name: "db_gwen_kasir2", db_user: "sa", db_password: "resmi12", is_active: 1, sort_order: 2 },
+  { label: "Kasir 2", server: "gwenkasir2", database_name: "db_gwen_kasir2", db_user: "sa", db_password: "resmi12", is_active: 1, sort_order: 2 },
   { label: "Kasir 3", server: "gwenkasir3", database_name: "db_gwen_kasir3", db_user: "sa", db_password: "resmi12", is_active: 1, sort_order: 3 },
   { label: "Kasir 4", server: "gwenkasir4\\SQLEXPRESS", database_name: "db_gwen_kasir4", db_user: "sa", db_password: "resmi12", is_active: 0, sort_order: 4 },
 ];

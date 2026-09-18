@@ -26,7 +26,7 @@ END;
 IF NOT EXISTS (SELECT 1 FROM dbo.GWEN_m_kasir_sync_target WHERE database_name = 'db_gwen_kasir2')
 BEGIN
   INSERT INTO dbo.GWEN_m_kasir_sync_target (label, server, database_name, db_user, db_password, is_active, sort_order)
-  VALUES ('Kasir 2', 'gwenkasir2\SQLEXPRESS', 'db_gwen_kasir2', 'sa', 'resmi12', 1, 2);
+  VALUES ('Kasir 2', 'gwenkasir2', 'db_gwen_kasir2', 'sa', 'resmi12', 1, 2);
 END;
 
 IF NOT EXISTS (SELECT 1 FROM dbo.GWEN_m_kasir_sync_target WHERE database_name = 'db_gwen_kasir3')
