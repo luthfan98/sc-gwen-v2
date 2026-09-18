@@ -687,19 +687,39 @@ export default async function pengadaanRoutes(fastify) {
             ISNULL(tag.total_tagihan, 0) AS total_tagihan,
             ISNULL(tag.total_dibayar, 0) AS total_dibayar,
             CASE
-              WHEN ISNULL(tag.total_tagihan, 0) > 0
+              WHEN
+                COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) > 0
+                AND ISNULL(tag.total_dibayar, 0) >= COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0)
+                THEN 1
+              WHEN
+                COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) = 0
+                AND ISNULL(tag.total_tagihan, 0) > 0
                 AND ISNULL(tag.total_dibayar, 0) >= ISNULL(tag.total_tagihan, 0)
                 THEN 1
-              WHEN ISNULL(paid_kontrabon.in_paid_kontrabon, 0) = 1
+              WHEN
+                ISNULL(tag.total_tagihan, 0) = 0
+                AND COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) > 0
+                AND ISNULL(paid_kontrabon.paid_kontrabon_total, 0) >= COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0)
                 THEN 1
               ELSE 0
             END AS is_lunas,
             CASE
-              WHEN ISNULL(tag.total_tagihan, 0) > 0
+              WHEN
+                COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) > 0
+                AND ISNULL(tag.total_dibayar, 0) >= COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0)
+                THEN 'PAID'
+              WHEN
+                COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) = 0
+                AND ISNULL(tag.total_tagihan, 0) > 0
                 AND ISNULL(tag.total_dibayar, 0) >= ISNULL(tag.total_tagihan, 0)
                 THEN 'PAID'
-              WHEN ISNULL(paid_kontrabon.in_paid_kontrabon, 0) = 1
+              WHEN
+                ISNULL(tag.total_tagihan, 0) = 0
+                AND COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) > 0
+                AND ISNULL(paid_kontrabon.paid_kontrabon_total, 0) >= COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0)
                 THEN 'PAID'
+              WHEN ISNULL(tag.total_dibayar, 0) > 0
+                THEN 'PARTIALLY PAID'
               ELSE 'NOT PAID'
             END AS status_paid
           FROM dbo.GWEN_t_pengadaan t
@@ -719,7 +739,7 @@ export default async function pengadaanRoutes(fastify) {
           ) tag
             ON tag.kode_t_pengadaan = t.kode_t_pengadaan
           OUTER APPLY (
-            SELECT TOP 1 1 AS in_paid_kontrabon
+            SELECT TOP 1 1 AS in_paid_kontrabon, ISNULL(k.nominal_total, ISNULL(k.nominal_faktur, 0)) AS paid_kontrabon_total
             FROM dbo.GWEN_t_kontrabon k
             WHERE ISNULL(k.status, 1) = 1
               AND LTRIM(RTRIM(ISNULL(k.status_paid, ''))) = 'Paid'
@@ -808,23 +828,40 @@ export default async function pengadaanRoutes(fastify) {
           ISNULL(tag.total_dibayar, 0) AS total_dibayar,
           CASE
             WHEN
-              (
-                CASE
-                  WHEN ISNULL(tag.total_tagihan, 0) > 0 THEN ISNULL(tag.total_tagihan, 0)
-                  ELSE ISNULL(t.total_akhir, 0)
-                END
-              ) > 0
-              AND ISNULL(tag.total_dibayar, 0) >=
-              (
-                CASE
-                  WHEN ISNULL(tag.total_tagihan, 0) > 0 THEN ISNULL(tag.total_tagihan, 0)
-                  ELSE ISNULL(t.total_akhir, 0)
-                END
-              )
+              COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) > 0
+              AND ISNULL(tag.total_dibayar, 0) >= COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0)
               THEN 1
-            WHEN ISNULL(paid_kontrabon.in_paid_kontrabon, 0) = 1 THEN 1
+            WHEN
+              COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) = 0
+              AND ISNULL(tag.total_tagihan, 0) > 0
+              AND ISNULL(tag.total_dibayar, 0) >= ISNULL(tag.total_tagihan, 0)
+              THEN 1
+            WHEN
+              ISNULL(tag.total_tagihan, 0) = 0
+              AND COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) > 0
+              AND ISNULL(paid_kontrabon.paid_kontrabon_total, 0) >= COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0)
+              THEN 1
             ELSE 0
           END AS is_lunas,
+          CASE
+            WHEN
+              COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) > 0
+              AND ISNULL(tag.total_dibayar, 0) >= COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0)
+              THEN 'PAID'
+            WHEN
+              COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) = 0
+              AND ISNULL(tag.total_tagihan, 0) > 0
+              AND ISNULL(tag.total_dibayar, 0) >= ISNULL(tag.total_tagihan, 0)
+              THEN 'PAID'
+            WHEN
+              ISNULL(tag.total_tagihan, 0) = 0
+              AND COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) > 0
+              AND ISNULL(paid_kontrabon.paid_kontrabon_total, 0) >= COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0)
+              THEN 'PAID'
+            WHEN ISNULL(tag.total_dibayar, 0) > 0
+              THEN 'PARTIALLY PAID'
+            ELSE 'NOT PAID'
+          END AS status_paid,
           ISNULL(pr.qty_dikirim, 0) AS qty_dikirim,
           ISNULL(pr.qty_diterima, 0) AS qty_diterima,
           t.created_by,
@@ -846,7 +883,7 @@ export default async function pengadaanRoutes(fastify) {
         ) tag
           ON tag.kode_t_pengadaan = t.kode_t_pengadaan
         OUTER APPLY (
-          SELECT TOP 1 1 AS in_paid_kontrabon
+          SELECT TOP 1 1 AS in_paid_kontrabon, ISNULL(k.nominal_total, ISNULL(k.nominal_faktur, 0)) AS paid_kontrabon_total
           FROM dbo.GWEN_t_kontrabon k
           WHERE ISNULL(k.status, 1) = 1
             AND LTRIM(RTRIM(ISNULL(k.status_paid, ''))) = 'Paid'

@@ -1910,20 +1910,22 @@ export default async function kontrabonRoutes(fastify) {
             paidParams.push(`@${param}`);
           });
           const paidRes = await paidReq.query(`
-            SELECT kode_t_pengadaan
-            FROM dbo.GWEN_t_tagihan
-            WHERE kode_t_pengadaan IN (${paidParams.join(", ")})
-              AND ISNULL(status, 1) = 1
-              AND ISNULL(is_void, 0) = 0
-            GROUP BY kode_t_pengadaan
-            HAVING SUM(ISNULL(total_tagihan, 0)) > 0
-              AND SUM(ISNULL(total_dibayar, 0)) >= SUM(ISNULL(total_tagihan, 0));
+            SELECT t.kode_t_pengadaan
+            FROM dbo.GWEN_t_tagihan t
+            INNER JOIN dbo.GWEN_t_pengadaan p
+              ON p.kode_t_pengadaan = t.kode_t_pengadaan
+            WHERE t.kode_t_pengadaan IN (${paidParams.join(", ")})
+              AND ISNULL(t.status, 1) = 1
+              AND ISNULL(t.is_void, 0) = 0
+            GROUP BY t.kode_t_pengadaan, p.total_akhir, p.total_sblm_ppn, p.total
+            HAVING COALESCE(NULLIF(p.total_akhir, 0), NULLIF(p.total_sblm_ppn, 0), p.total, 0) > 0
+              AND SUM(ISNULL(t.total_dibayar, 0)) >= COALESCE(NULLIF(p.total_akhir, 0), NULLIF(p.total_sblm_ppn, 0), p.total, 0);
           `);
           const paidPengadaan = (paidRes.recordset || [])
             .map((row) => String(row.kode_t_pengadaan || "").trim())
             .filter(Boolean);
           if (paidPengadaan.length > 0) {
-            throw new Error(`Pengadaan ${paidPengadaan.join(", ")} sudah PAID dan tidak bisa dipilih kembali`);
+            throw new Error(`Pengadaan ${paidPengadaan.join(", ")} sudah lunas (PAID) dan tidak bisa dipilih kembali`);
           }
         }
 
@@ -2169,11 +2171,11 @@ export default async function kontrabonRoutes(fastify) {
           `);
         const activeTagihanTotal = roundMoney(existingTagihanRes.recordset?.[0]?.total_tagihan_aktif ?? 0);
         const activeDibayarTotal = roundMoney(existingTagihanRes.recordset?.[0]?.total_dibayar_aktif ?? 0);
-        if (activeTagihanTotal > 0 && activeDibayarTotal >= activeTagihanTotal) {
-          throw new Error(`Pengadaan ${kodeT} sudah PAID dan tidak bisa dipilih kembali`);
-        }
         const totalAkhirPengadaan = roundMoney(peng.total_akhir ?? peng.total_sblm_ppn ?? peng.total ?? 0);
         const sisaTagihanPengadaan = roundMoney(totalAkhirPengadaan - activeTagihanTotal);
+        if (totalAkhirPengadaan > 0 && activeDibayarTotal >= totalAkhirPengadaan) {
+          throw new Error(`Pengadaan ${kodeT} sudah lunas (PAID) dan tidak bisa dipilih kembali`);
+        }
         if (sisaTagihanPengadaan <= 0) {
           throw new Error(`Pengadaan ${kodeT} sudah tidak memiliki sisa tagihan untuk kontrabon baru`);
         }

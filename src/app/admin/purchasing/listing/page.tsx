@@ -292,8 +292,8 @@ export default function ListingPengadaanPage() {
                   const totalAkhir = Number(row.total_akhir ?? 0);
                   const totalTagihan = Number(row.total_tagihan ?? 0);
                   const totalDibayar = Number(row.total_dibayar ?? 0);
-                  const basisTagihan = totalTagihan > 0 ? totalTagihan : totalAkhir;
-                  const sisa = Math.max(0, basisTagihan - totalDibayar);
+                  const basisNilai = totalAkhir > 0 ? totalAkhir : totalTagihan;
+                  const sisa = Math.max(0, basisNilai - totalDibayar);
                   const statusLabel = Number(row.status ?? 0) === 1 ? "AKTIF" : "NONAKTIF";
                   return (
                     <tr key={row.kode_t_pengadaan} className="hover:bg-gray-50">

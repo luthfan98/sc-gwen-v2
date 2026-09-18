@@ -262,7 +262,16 @@ export default function HistoryKontrabonPage() {
   const isPengadaanPaid = (item?: {
     is_lunas?: number | boolean | null;
     status_paid?: string | null;
+    total_akhir?: number | null;
+    total_tagihan?: number | null;
+    total_dibayar?: number | null;
   } | null) => {
+    const totalAkhir = Number(item?.total_akhir ?? 0);
+    const totalDibayar = Number(item?.total_dibayar ?? 0);
+    const totalTagihan = Number(item?.total_tagihan ?? 0);
+    if (totalAkhir > 0 && (totalDibayar < totalAkhir || totalTagihan < totalAkhir)) {
+      return false;
+    }
     const statusPaid = String(item?.status_paid || "").trim().toLowerCase();
     return Number(item?.is_lunas ?? 0) === 1 || item?.is_lunas === true || statusPaid === "paid";
   };
@@ -585,10 +594,16 @@ export default function HistoryKontrabonPage() {
     row: { nominal?: string | null } | undefined,
     item?: {
       total_akhir?: number | null;
+      total_tagihan?: number | null;
+      total_dibayar?: number | null;
     } | null
   ) => {
     const totalAkhir = Number(item?.total_akhir ?? 0);
-    if (Number.isFinite(totalAkhir) && totalAkhir > 0) return totalAkhir;
+    const totalTagihan = Number(item?.total_tagihan ?? 0);
+    const sisa = Math.max(0, totalAkhir - totalTagihan);
+    if (Number.isFinite(totalAkhir) && totalAkhir > 0) {
+      return totalTagihan > 0 && sisa > 0 ? sisa : totalAkhir;
+    }
     return parseNumber(row?.nominal || "");
   }, []);
 
@@ -1345,18 +1360,29 @@ export default function HistoryKontrabonPage() {
                                     value: row.kode_t_pengadaan,
                                     label: `${row.kode_t_pengadaan} • ${formatCurrency(
                                       getPengadaanDisplayAmount(row, selectedItem)
-                                    )}`,
+                                    )}${
+                                      Number(selectedItem?.total_tagihan ?? 0) > 0 &&
+                                      Number(selectedItem?.total_akhir ?? 0) - Number(selectedItem?.total_tagihan ?? 0) > 0
+                                        ? " (Sisa)"
+                                        : ""
+                                    }`,
                                   }
                                 : null;
-                              const options = available.map((opt) => ({
-                                value: opt.kode_t_pengadaan,
-                                label: `${opt.kode_t_pengadaan} • ${formatCurrency(
-                                  getPengadaanDisplayAmount(
-                                    pengadaanRows.find((item) => item.kode_t_pengadaan === opt.kode_t_pengadaan),
-                                    opt
-                                  )
-                                )}`,
-                              }));
+                              const options = available.map((opt) => {
+                                const totalAkhir = Number(opt.total_akhir ?? 0);
+                                const totalTagihan = Number(opt.total_tagihan ?? 0);
+                                const sisa = Math.max(0, totalAkhir - totalTagihan);
+                                const isPartial = totalTagihan > 0 && sisa > 0;
+                                return {
+                                  value: opt.kode_t_pengadaan,
+                                  label: `${opt.kode_t_pengadaan} • ${formatCurrency(
+                                    getPengadaanDisplayAmount(
+                                      pengadaanRows.find((item) => item.kode_t_pengadaan === opt.kode_t_pengadaan),
+                                      opt
+                                    )
+                                  )}${isPartial ? " (Sisa)" : ""}`,
+                                };
+                              });
                               return (
                             <Select
                               instanceId={`kontrabon-pengadaan-${row.id}`}
