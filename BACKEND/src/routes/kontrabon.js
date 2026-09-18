@@ -1777,6 +1777,100 @@ export default async function kontrabonRoutes(fastify) {
     }
   });
 
+  fastify.post("/rekap/:id/batal-paid", async (request, reply) => {
+    const { id } = request.params || {};
+    const { cancelled_by } = request.body || {};
+    if (!id) return reply.code(400).send({ message: "id wajib diisi" });
+    const cancelledBy = String(cancelled_by || "Admin").trim() || "Admin";
+    const now = new Date();
+    const tx = new sql.Transaction(pool);
+    try {
+      await tx.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+
+      const rekapItemsRes = await new sql.Request(tx)
+        .input("id_wadah_rekap", sql.Int, Number(id))
+        .query(`
+          SELECT nokontrabon
+          FROM dbo.GWEN_tbl_rekap
+          WHERE id_wadah_rekap = @id_wadah_rekap;
+        `);
+      const kontrabonList = (rekapItemsRes.recordset || [])
+        .map((row) => String(row.nokontrabon || "").trim())
+        .filter(Boolean);
+
+      for (const noKontrabon of kontrabonList) {
+        await new sql.Request(tx)
+          .input("no_kontrabon", sql.VarChar(255), noKontrabon)
+          .query(`
+            UPDATE dbo.GWEN_t_kontrabon
+            SET status_paid = 'Not Paid',
+                tgl_bayar = NULL
+            WHERE no_kontrabon = @no_kontrabon;
+          `);
+
+        await new sql.Request(tx)
+          .input("no_invoice", sql.VarChar(255), noKontrabon)
+          .input("updated_by", sql.VarChar(100), cancelledBy)
+          .input("updated_at", sql.DateTime2, now)
+          .query(`
+            UPDATE dbo.GWEN_t_tagihan
+            SET is_lunas = 0,
+                total_dibayar = 0,
+                tgl_lunas = NULL,
+                updated_by = @updated_by,
+                updated_at = @updated_at
+            WHERE no_invoice = @no_invoice
+              AND ISNULL(is_void, 0) = 0
+              AND ISNULL(status, 1) = 1;
+          `);
+
+        await new sql.Request(tx)
+          .input("id_wadah_rekap", sql.Int, Number(id))
+          .input("no_kontrabon", sql.VarChar(255), noKontrabon)
+          .query(`
+            UPDATE dbo.GWEN_tbl_rekap
+            SET stspaid = 'Not Paid',
+                status_notif_wa = NULL
+            WHERE id_wadah_rekap = @id_wadah_rekap
+              AND nokontrabon = @no_kontrabon;
+          `);
+
+        await new sql.Request(tx)
+          .input("keterangan", sql.NVarChar(255), `PELUNASAN KONTRABON ${noKontrabon}`)
+          .query(`
+            DELETE FROM dbo.GWEN_t_pembayaran_tagihan
+            WHERE keterangan = @keterangan;
+          `);
+
+        await new sql.Request(tx)
+          .input("no_kontrabon", sql.NVarChar(100), noKontrabon)
+          .query(`
+            DELETE FROM dbo.GWEN_temp_pesan_wa
+            WHERE kode_referensi = @no_kontrabon
+              AND jenis_pesan = 'PELUNASAN_KONTRABON'
+              AND status_kirim = 'PENDING';
+          `);
+      }
+
+      await new sql.Request(tx)
+        .input("id_wadah_rekap", sql.Int, Number(id))
+        .query(`
+          UPDATE dbo.GWEN_wadah_rekap
+          SET status_rekap = 'Not Paid',
+              approved_by = NULL,
+              approved_at = NULL
+          WHERE id = @id_wadah_rekap;
+        `);
+
+      await tx.commit();
+      return reply.send({ success: true, message: "Pelunasan berhasil dibatalkan" });
+    } catch (err) {
+      await tx.rollback().catch(() => {});
+      fastify.log.error({ err }, "Failed batal pelunasan rekap");
+      return reply.code(500).send({ message: "Gagal membatalkan pelunasan rekap" });
+    }
+  });
+
   fastify.delete("/rekap/:id/items/:no", async (request, reply) => {
     const { id, no } = request.params || {};
     if (!id || !no) return reply.code(400).send({ message: "id dan no wajib diisi" });

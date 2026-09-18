@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { Printer, Plus, Wallet, ClipboardList, Trash2, Search, X, History } from "lucide-react";
+import { Printer, Plus, Wallet, ClipboardList, Trash2, Search, X, History, RotateCcw } from "lucide-react";
 import Swal from "sweetalert2";
 
 type RekapHeader = {
@@ -317,6 +317,54 @@ export default function KontrabonRekapDetailPage() {
     }
   };
 
+  const handleBatalPaid = async () => {
+    if (!id || paying) return;
+    const confirm = await Swal.fire({
+      title: "Batal Pelunasan?",
+      text: "Status rekap dan kontrabon di dalamnya akan dikembalikan menjadi Not Paid / Belum Lunas.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Ya, Batalkan Paid",
+      cancelButtonText: "Batal",
+      confirmButtonColor: "#d97706",
+    });
+    if (!confirm.isConfirmed) return;
+
+    setPaying(true);
+    Swal.fire({
+      title: "Membatalkan pelunasan...",
+      didOpen: () => Swal.showLoading(),
+      allowOutsideClick: false,
+    });
+    let cancelledBy = "Admin";
+    const raw = localStorage.getItem("kosmetik-admin-session");
+    if (raw) {
+      try {
+        const data = JSON.parse(raw);
+        if (data?.username) cancelledBy = data.username;
+      } catch {
+        // ignore
+      }
+    }
+    try {
+      const res = await fetch(`${API_BASE}/kontrabon/rekap/${encodeURIComponent(id)}/batal-paid`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cancelled_by: cancelledBy }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        throw new Error(payload?.message || `HTTP ${res.status}`);
+      }
+      await fetchDetail();
+      Swal.fire({ icon: "success", title: "Berhasil", text: "Pelunasan berhasil dibatalkan." });
+    } catch (err: any) {
+      Swal.fire({ icon: "error", title: "Gagal", text: err?.message || "Gagal membatalkan pelunasan." });
+    } finally {
+      setPaying(false);
+    }
+  };
+
   const handleDeleteItem = async (row: RekapItem) => {
     if (!id || !row?.no) return;
     const confirm = await Swal.fire({
@@ -366,14 +414,25 @@ export default function KontrabonRekapDetailPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2 text-sm">
             {isSuperAdmin && (
-              <button
-                className="h-9 px-4 rounded-md bg-green-600 text-white text-sm font-semibold flex items-center gap-2"
-                onClick={handlePelunasan}
-                disabled={paying}
-              >
-                <Wallet className="w-4 h-4" />
-                {paying ? "Memproses..." : "Pelunasan"}
-              </button>
+              isRekapPaid ? (
+                <button
+                  className="h-9 px-4 rounded-md bg-amber-600 text-white text-sm font-semibold flex items-center gap-2 hover:bg-amber-700 disabled:opacity-60 transition shadow-sm"
+                  onClick={handleBatalPaid}
+                  disabled={paying}
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  {paying ? "Memproses..." : "Batal Paid"}
+                </button>
+              ) : (
+                <button
+                  className="h-9 px-4 rounded-md bg-green-600 text-white text-sm font-semibold flex items-center gap-2 hover:bg-green-700 disabled:opacity-60 transition shadow-sm"
+                  onClick={handlePelunasan}
+                  disabled={paying}
+                >
+                  <Wallet className="w-4 h-4" />
+                  {paying ? "Memproses..." : "Pelunasan"}
+                </button>
+              )
             )}
             <button className="h-9 px-4 rounded-md bg-slate-700 text-white text-sm font-semibold flex items-center gap-2">
               <ClipboardList className="w-4 h-4" />

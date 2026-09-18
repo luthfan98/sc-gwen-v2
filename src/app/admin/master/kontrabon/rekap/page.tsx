@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Eye, Pencil, Printer, Trash2 } from "lucide-react";
+import { Eye, Pencil, Printer, RotateCcw, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import Swal from "sweetalert2";
 
 type RekapRow = {
   id: number;
@@ -48,6 +49,7 @@ export default function KontrabonRekapPage() {
   const [rows, setRows] = useState<RekapRow[]>([]);
   const [catatanDrafts, setCatatanDrafts] = useState<Record<number, string>>({});
   const [savingCatatan, setSavingCatatan] = useState<Record<number, boolean>>({});
+  const [cancellingPaid, setCancellingPaid] = useState<Record<number, boolean>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -158,6 +160,60 @@ export default function KontrabonRekapPage() {
     }
   };
 
+  const handleBatalPaid = async (id: number) => {
+    if (!id || cancellingPaid[id]) return;
+    const confirm = await Swal.fire({
+      title: "Batal Pelunasan?",
+      text: "Status rekap dan kontrabon di dalamnya akan dikembalikan menjadi Not Paid / Belum Lunas.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Ya, Batalkan Paid",
+      cancelButtonText: "Batal",
+      confirmButtonColor: "#d97706",
+    });
+    if (!confirm.isConfirmed) return;
+
+    setCancellingPaid((prev) => ({ ...prev, [id]: true }));
+    let cancelledBy = "Admin";
+    const raw = localStorage.getItem("kosmetik-admin-session");
+    if (raw) {
+      try {
+        const data = JSON.parse(raw);
+        if (data?.username) cancelledBy = data.username;
+      } catch {
+        // ignore
+      }
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/kontrabon/rekap/${id}/batal-paid`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cancelled_by: cancelledBy }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        throw new Error(payload?.message || `HTTP ${res.status}`);
+      }
+      await Swal.fire({
+        icon: "success",
+        title: "Berhasil",
+        text: "Pelunasan berhasil dibatalkan.",
+        timer: 1500,
+        showConfirmButton: false,
+      });
+      fetchData();
+    } catch (err: any) {
+      Swal.fire({
+        icon: "error",
+        title: "Gagal",
+        text: err?.message || "Gagal membatalkan pelunasan rekap.",
+      });
+    } finally {
+      setCancellingPaid((prev) => ({ ...prev, [id]: false }));
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#eef3ff] px-6 py-6">
       <div className="w-full max-w-none">
@@ -205,7 +261,7 @@ export default function KontrabonRekapPage() {
             <table className="w-full text-sm">
               <thead className="bg-[#fff8e6] text-gray-800">
                 <tr>
-                  <th className="px-4 py-3 text-left w-40">AKSI</th>
+                  <th className="px-4 py-3 text-left min-w-[210px] w-56">AKSI</th>
                   <th className="px-4 py-3 text-left">TANGGAL REKAPAN</th>
                   <th className="px-4 py-3 text-left">STATUS REKAPAN</th>
                   <th className="px-4 py-3 text-left">TOTAL NOMINAL</th>
@@ -271,6 +327,18 @@ export default function KontrabonRekapPage() {
                         >
                           <Printer className="w-4 h-4" />
                         </button>
+                        {paid && (
+                          <button
+                            type="button"
+                            onClick={() => handleBatalPaid(row.id)}
+                            disabled={cancellingPaid[row.id]}
+                            className="h-9 px-2.5 rounded-md bg-amber-500 text-white flex items-center gap-1.5 hover:bg-amber-600 text-xs font-semibold whitespace-nowrap disabled:opacity-60 transition shadow-sm"
+                            title="Batal Pelunasan"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            {cancellingPaid[row.id] ? "Membatalkan..." : "Batal Paid"}
+                          </button>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-4">{formatDate(row.tgl_rekap)}</td>
