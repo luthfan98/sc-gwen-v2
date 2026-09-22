@@ -83,6 +83,7 @@ export default function KontrabonRekapDetailPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
+  const [cancellingItemNo, setCancellingItemNo] = useState<number | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [kontrabonList, setKontrabonList] = useState<any[]>([]);
   const [kontrabonLoading, setKontrabonLoading] = useState(false);
@@ -91,6 +92,16 @@ export default function KontrabonRekapDetailPage() {
   const [roleName, setRoleName] = useState<string | null>(null);
   const roleLower = String(roleName || "").toLowerCase();
   const isSuperAdmin = roleLower === "super_admin";
+
+  const checkIsPaid = (value?: string | null) => {
+    const label = (value || "").toLowerCase();
+    if (!label) return false;
+    return (
+      (label.includes("paid") && !label.includes("not")) ||
+      label.includes("lunas") ||
+      label.includes("terbayar")
+    );
+  };
   const openPemantauan30 = () => {
     if (!id) return;
     const nextTab = window.open("", "_blank");
@@ -320,13 +331,16 @@ export default function KontrabonRekapDetailPage() {
   const handleBatalPaid = async () => {
     if (!id || paying) return;
     const confirm = await Swal.fire({
-      title: "Batal Pelunasan?",
-      text: "Status rekap dan kontrabon di dalamnya akan dikembalikan menjadi Not Paid / Belum Lunas.",
+      title: "Konfirmasi Batal Paid Seluruh Rekap",
+      html: `Apakah Anda yakin ingin membatalkan status Paid untuk <b>seluruh kontrabon</b> di dalam rekap ini?<br/><span style="font-size: 0.875rem; color: #64748b; margin-top: 0.5rem; display: inline-block;">Status rekap dan semua kontrabon akan dikembalikan menjadi <b>Not Paid</b>.</span>`,
       icon: "warning",
       showCancelButton: true,
       confirmButtonText: "Ya, Batalkan Paid",
       cancelButtonText: "Batal",
       confirmButtonColor: "#d97706",
+      cancelButtonColor: "#64748b",
+      reverseButtons: true,
+      focusCancel: true,
     });
     if (!confirm.isConfirmed) return;
 
@@ -357,11 +371,75 @@ export default function KontrabonRekapDetailPage() {
         throw new Error(payload?.message || `HTTP ${res.status}`);
       }
       await fetchDetail();
-      Swal.fire({ icon: "success", title: "Berhasil", text: "Pelunasan berhasil dibatalkan." });
+      Swal.fire({ icon: "success", title: "Berhasil", text: "Pelunasan seluruh rekap berhasil dibatalkan." });
     } catch (err: any) {
       Swal.fire({ icon: "error", title: "Gagal", text: err?.message || "Gagal membatalkan pelunasan." });
     } finally {
       setPaying(false);
+    }
+  };
+
+  const handleBatalPaidItem = async (row: RekapItem) => {
+    if (!id || !row?.no || cancellingItemNo !== null) return;
+    const confirm = await Swal.fire({
+      title: "Konfirmasi Batal Paid",
+      html: `Apakah Anda yakin ingin membatalkan status Paid untuk kontrabon <b>${row.nokontrabon || "-"}</b>${
+        row.namasupp ? `<br/><span style="font-size: 0.9rem; color: #334155;">Supplier: <b>${row.namasupp}</b></span>` : ""
+      }?<br/><span style="font-size: 0.875rem; color: #64748b; margin-top: 0.5rem; display: inline-block;">Status pembayaran baris ini akan dikembalikan menjadi <b>Not Paid</b>.</span>`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Ya, Batalkan Paid",
+      cancelButtonText: "Batal",
+      confirmButtonColor: "#d97706",
+      cancelButtonColor: "#64748b",
+      reverseButtons: true,
+      focusCancel: true,
+    });
+    if (!confirm.isConfirmed) return;
+
+    setCancellingItemNo(row.no);
+    Swal.fire({
+      title: "Membatalkan pelunasan...",
+      didOpen: () => Swal.showLoading(),
+      allowOutsideClick: false,
+    });
+    let cancelledBy = "Admin";
+    const raw = localStorage.getItem("kosmetik-admin-session");
+    if (raw) {
+      try {
+        const data = JSON.parse(raw);
+        if (data?.username) cancelledBy = data.username;
+      } catch {
+        // ignore
+      }
+    }
+    try {
+      const res = await fetch(
+        `${API_BASE}/kontrabon/rekap/${encodeURIComponent(id)}/items/${encodeURIComponent(String(row.no))}/batal-paid`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cancelled_by: cancelledBy }),
+        }
+      );
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        throw new Error(payload?.message || `HTTP ${res.status}`);
+      }
+      await fetchDetail();
+      Swal.fire({
+        icon: "success",
+        title: "Berhasil",
+        text: `Pelunasan kontrabon ${row.nokontrabon || ""} berhasil dibatalkan.`,
+      });
+    } catch (err: any) {
+      Swal.fire({
+        icon: "error",
+        title: "Gagal",
+        text: err?.message || "Gagal membatalkan pelunasan item.",
+      });
+    } finally {
+      setCancellingItemNo(null);
     }
   };
 
@@ -492,7 +570,7 @@ export default function KontrabonRekapDetailPage() {
                       <th className="px-4 py-3 text-left w-40">NOMINAL FAKTUR</th>
                       <th className="px-4 py-3 text-left">NOMINAL TAMBAHAN</th>
                       <th className="px-4 py-3 text-left w-40">NOMINAL TOTAL</th>
-                      <th className="px-4 py-3 text-left w-32">STATUS BAYAR</th>
+                      <th className="px-4 py-3 text-left min-w-[210px]">STATUS BAYAR</th>
                       <th className="px-4 py-3 text-left w-32">KIRIM NOTIF</th>
                       <th className="px-4 py-3 text-left w-36">STATUS NOTIF</th>
                     </tr>
@@ -544,7 +622,26 @@ export default function KontrabonRekapDetailPage() {
                             ))}
                           </td>
                           <td className="px-4 py-3">{formatCurrency(summary?.total)}</td>
-                          <td className="px-4 py-3">{statusBadge(summary?.statusBayar)}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              {statusBadge(summary?.statusBayar)}
+                              {isSuperAdmin && checkIsPaid(summary?.statusBayar) && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleBatalPaidItem(item);
+                                  }}
+                                  disabled={cancellingItemNo === item.no}
+                                  className="h-8 px-2.5 rounded-md bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition whitespace-nowrap disabled:opacity-60"
+                                  title={`Batal Pelunasan ${item.nokontrabon || ""}`}
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                  {cancellingItemNo === item.no ? "Membatalkan..." : "Batal Paid"}
+                                </button>
+                              )}
+                            </div>
+                          </td>
                           <td className="px-4 py-3">{renderWhatsappButton(summary?.kirimNotif)}</td>
                           <td className="px-4 py-3">{notifBadge(summary?.statusNotif)}</td>
                         </tr>
