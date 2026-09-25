@@ -963,7 +963,7 @@ export default function MasterHargaJualPage() {
       }, {});
       const barcodeHeaders = ["barcode", "barcodevarian", "kodebarcode"];
       const priceHeaders = {
-        harga_1: ["harga1pcs", "harga1pc", "harga1", "1pcs", "1pc"],
+        harga_1: ["harga1pcs", "harga1pc", "harga1", "1pcs", "1pc", "hargaevent", "event", "het", "hargajual", "harga", "h1"],
         harga_3: ["harga3pcs", "harga3pc", "harga3", "3pcs", "3pc"],
         harga_6: ["harga6pcs", "harga6pc", "harga6", "6pcs", "6pc"],
         harga_12: ["harga12pcs", "harga12pc", "harga12", "12pcs", "12pc"],
@@ -973,9 +973,12 @@ export default function MasterHargaJualPage() {
         const barcode = normalizeKey(pickExcelCell(row, headerMap, barcodeHeaders, 1));
         const namaVarianExcel = normalizeKey(pickExcelCell(row, headerMap, ["namavarian", "varian", "namaitem", "item"], 2));
         const harga1 = parseEventImportPrice(pickExcelCell(row, headerMap, priceHeaders.harga_1, 3));
-        const harga3 = parseEventImportPrice(pickExcelCell(row, headerMap, priceHeaders.harga_3, 4));
-        const harga6 = parseEventImportPrice(pickExcelCell(row, headerMap, priceHeaders.harga_6, 5));
-        const harga12 = parseEventImportPrice(pickExcelCell(row, headerMap, priceHeaders.harga_12, 6));
+        const rawH3 = pickExcelCell(row, headerMap, priceHeaders.harga_3, 4);
+        const rawH6 = pickExcelCell(row, headerMap, priceHeaders.harga_6, 5);
+        const rawH12 = pickExcelCell(row, headerMap, priceHeaders.harga_12, 6);
+        const harga3 = parseEventImportPrice(rawH3) ?? harga1;
+        const harga6 = parseEventImportPrice(rawH6) ?? harga1;
+        const harga12 = parseEventImportPrice(rawH12) ?? harga1;
         return {
           no: String(pickExcelCell(row, headerMap, ["no", "nomor"], 0) || index + 1),
           barcode,
@@ -1098,6 +1101,64 @@ export default function MasterHargaJualPage() {
         };
       });
       return next;
+    });
+  };
+
+  const handleApplyHarga1ToAllTiers = () => {
+    if (!selectedRows.length) {
+      Swal.fire({ icon: "warning", title: "Belum ada item", text: "Pilih item atau import Excel dulu." });
+      return;
+    }
+    setEventPriceDrafts((prev) => {
+      const next = { ...prev };
+      selectedRows.forEach((row) => {
+        const key = normalizeKey(row.kode_barang_variant);
+        if (!key) return;
+        const h1 = next[key]?.harga_1 || String(row.harga?.OFFLINE?.h1 || "");
+        next[key] = {
+          harga_1: h1,
+          harga_3: h1,
+          harga_6: h1,
+          harga_12: h1,
+        };
+      });
+      return next;
+    });
+    Swal.fire({
+      icon: "success",
+      title: "Berhasil",
+      text: "Semua tier QTY disamakan dengan harga 1 PCS.",
+      timer: 1200,
+      showConfirmButton: false,
+    });
+  };
+
+  const handleApplyHetToEventDraft = () => {
+    if (!selectedRows.length) {
+      Swal.fire({ icon: "warning", title: "Belum ada item", text: "Pilih item atau import Excel dulu." });
+      return;
+    }
+    setEventPriceDrafts((prev) => {
+      const next = { ...prev };
+      selectedRows.forEach((row) => {
+        const key = normalizeKey(row.kode_barang_variant);
+        if (!key) return;
+        const het = row.het == null ? (row.harga?.OFFLINE?.h1 || "") : String(row.het);
+        next[key] = {
+          harga_1: het,
+          harga_3: het,
+          harga_6: het,
+          harga_12: het,
+        };
+      });
+      return next;
+    });
+    Swal.fire({
+      icon: "success",
+      title: "HET Diterapkan",
+      text: "Semua harga event diisi sesuai HET barang.",
+      timer: 1200,
+      showConfirmButton: false,
     });
   };
 
@@ -1263,11 +1324,12 @@ export default function MasterHargaJualPage() {
         const parsed = Number(value);
         return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed) : NaN;
       };
+      const h1Val = parsePrice(draft?.harga_1, harga.h1);
       const prices = [
-        parsePrice(draft?.harga_1, harga.h1),
-        parsePrice(draft?.harga_3, harga.h3),
-        parsePrice(draft?.harga_6, harga.h6),
-        parsePrice(draft?.harga_12, harga.h12),
+        h1Val,
+        parsePrice(draft?.harga_3, h1Val ?? harga.h3),
+        parsePrice(draft?.harga_6, h1Val ?? harga.h6),
+        parsePrice(draft?.harga_12, h1Val ?? harga.h12),
       ];
       if (prices.some((price) => Number.isNaN(price))) return [];
       return [{
@@ -3212,7 +3274,25 @@ export default function MasterHargaJualPage() {
                     <p className="text-sm font-semibold text-gray-800">Harga event per item</p>
                     <p className="text-xs text-gray-600">Isi nominal berbeda untuk tiap item. Harga normal ditampilkan sebagai referensi.</p>
                   </div>
-                  <span className="text-xs font-semibold text-amber-800">{selectedCount} item dipilih</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleApplyHetToEventDraft}
+                      className="rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition"
+                      title="Set semua tier (1, 3, 6, 12 PCS) sama dengan nilai HET produk"
+                    >
+                      🏷️ Gunakan HET untuk Semua QTY
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleApplyHarga1ToAllTiers}
+                      className="rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-200 border border-amber-300 transition"
+                      title="Samakan harga 3, 6, 12 PCS agar sama dengan harga 1 PCS (Harga Event Flat)"
+                    >
+                      ⚡ Samakan 3, 6, 12 PCS = 1 PCS
+                    </button>
+                    <span className="text-xs font-semibold text-amber-800 bg-white px-2 py-1 rounded border border-amber-200">{selectedCount} item dipilih</span>
+                  </div>
                 </div>
                 <div className="max-h-64 overflow-auto rounded-lg border border-amber-100 bg-white">
                   <table className="min-w-[760px] w-full text-xs">

@@ -53,6 +53,45 @@ BEGIN
 
   BEGIN TRANSACTION;
   BEGIN TRY
+    -- 1. KEMBALIKAN HARGA NORMAL UNTUK EVENT YANG EXPIRED / COMPLETED
+    -- Jangan overwrite jika item masih terdaftar di event lain yang sedang ACTIVE
+    UPDATE d
+    SET d.harga_1 = e.harga_normal_1,
+        d.harga_3 = e.harga_normal_3,
+        d.harga_6 = e.harga_normal_6,
+        d.harga_12 = e.harga_normal_12,
+        d.updated_by = 'SQL_AGENT_EVENT',
+        d.updated_at = @now
+    FROM dbo.GWEN_mn_barang_harga_jual_variant d
+    JOIN dbo.GWEN_d_harga_event_variant e ON e.kode_mn_harga_jual = d.kode_mn_harga_jual
+    JOIN dbo.GWEN_t_harga_event h ON h.kode_t_harga_event = e.kode_t_harga_event
+    WHERE h.status = 'ACTIVE' AND h.berlaku_sampai <= @now AND e.applied = 1
+      AND NOT EXISTS (
+        SELECT 1
+        FROM dbo.GWEN_d_harga_event_variant e2
+        JOIN dbo.GWEN_t_harga_event h2 ON h2.kode_t_harga_event = e2.kode_t_harga_event
+        WHERE e2.kode_mn_harga_jual = d.kode_mn_harga_jual
+          AND h2.kode_t_harga_event <> h.kode_t_harga_event
+          AND h2.status = 'ACTIVE'
+          AND h2.berlaku_mulai <= @now
+          AND h2.berlaku_sampai > @now
+      );
+
+    UPDATE e SET e.applied = 0
+    FROM dbo.GWEN_d_harga_event_variant e
+    JOIN dbo.GWEN_t_harga_event h ON h.kode_t_harga_event = e.kode_t_harga_event
+    WHERE h.status = 'ACTIVE' AND h.berlaku_sampai <= @now AND e.applied = 1;
+
+    UPDATE dbo.GWEN_t_harga_event
+    SET status = 'COMPLETED', updated_at = @now, updated_by = 'SQL_AGENT_EVENT'
+    WHERE status = 'ACTIVE' AND berlaku_sampai <= @now;
+
+    -- 2. AKTIFKAN EVENT YANG SUDAH MASUK PERIODE
+    UPDATE dbo.GWEN_t_harga_event
+    SET status = 'ACTIVE', updated_at = @now, updated_by = 'SQL_AGENT_EVENT'
+    WHERE status IN ('DRAFT','SCHEDULED') AND berlaku_mulai <= @now AND berlaku_sampai > @now;
+
+    -- 3. TERAPKAN HARGA EVENT UNTUK SEMUA EVENT ACTIVE (TERMASUK YANG MISMATCH / TER-OVERWRITE)
     UPDATE d
     SET d.harga_1 = e.harga_event_1,
         d.harga_3 = e.harga_event_3,
@@ -65,43 +104,24 @@ BEGIN
       ON e.kode_mn_harga_jual = d.kode_mn_harga_jual
     JOIN dbo.GWEN_t_harga_event h
       ON h.kode_t_harga_event = e.kode_t_harga_event
-    WHERE h.status IN ('DRAFT','SCHEDULED')
+    WHERE h.status = 'ACTIVE'
       AND h.berlaku_mulai <= @now
       AND h.berlaku_sampai > @now
-      AND e.applied = 0;
+      AND (
+        e.applied = 0
+        OR ISNULL(d.harga_1, -1) <> ISNULL(e.harga_event_1, -1)
+        OR ISNULL(d.harga_3, -1) <> ISNULL(e.harga_event_3, -1)
+        OR ISNULL(d.harga_6, -1) <> ISNULL(e.harga_event_6, -1)
+        OR ISNULL(d.harga_12, -1) <> ISNULL(e.harga_event_12, -1)
+      );
 
     UPDATE e SET e.applied = 1
     FROM dbo.GWEN_d_harga_event_variant e
     JOIN dbo.GWEN_t_harga_event h ON h.kode_t_harga_event = e.kode_t_harga_event
-    WHERE h.status IN ('DRAFT','SCHEDULED')
+    WHERE h.status = 'ACTIVE'
       AND h.berlaku_mulai <= @now
       AND h.berlaku_sampai > @now
       AND e.applied = 0;
-
-    UPDATE dbo.GWEN_t_harga_event
-    SET status = 'ACTIVE', updated_at = @now, updated_by = 'SQL_AGENT_EVENT'
-    WHERE status IN ('DRAFT','SCHEDULED') AND berlaku_mulai <= @now AND berlaku_sampai > @now;
-
-    UPDATE d
-    SET d.harga_1 = e.harga_normal_1,
-        d.harga_3 = e.harga_normal_3,
-        d.harga_6 = e.harga_normal_6,
-        d.harga_12 = e.harga_normal_12,
-        d.updated_by = 'SQL_AGENT_EVENT',
-        d.updated_at = @now
-    FROM dbo.GWEN_mn_barang_harga_jual_variant d
-    JOIN dbo.GWEN_d_harga_event_variant e ON e.kode_mn_harga_jual = d.kode_mn_harga_jual
-    JOIN dbo.GWEN_t_harga_event h ON h.kode_t_harga_event = e.kode_t_harga_event
-    WHERE h.status = 'ACTIVE' AND h.berlaku_sampai <= @now AND e.applied = 1;
-
-    UPDATE e SET e.applied = 0
-    FROM dbo.GWEN_d_harga_event_variant e
-    JOIN dbo.GWEN_t_harga_event h ON h.kode_t_harga_event = e.kode_t_harga_event
-    WHERE h.status = 'ACTIVE' AND h.berlaku_sampai <= @now AND e.applied = 1;
-
-    UPDATE dbo.GWEN_t_harga_event
-    SET status = 'COMPLETED', updated_at = @now, updated_by = 'SQL_AGENT_EVENT'
-    WHERE status = 'ACTIVE' AND berlaku_sampai <= @now;
 
     COMMIT TRANSACTION;
   END TRY
