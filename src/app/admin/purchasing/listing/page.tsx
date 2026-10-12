@@ -50,6 +50,7 @@ export default function ListingPengadaanPage() {
     try {
       const params = new URLSearchParams({
         status: statusFilter === "all" ? "all" : statusFilter,
+        page_size: "200",
       });
       const res = await fetch(`${API_BASE}/pengadaan?${params.toString()}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);

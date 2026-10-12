@@ -794,8 +794,12 @@ export default async function pengadaanRoutes(fastify) {
   });
 
   fastify.get("/", async (request, reply) => {
-    const { kode_supplier, status: statusQuery } = request.query || {};
+    const { kode_supplier, status: statusQuery, page_size } = request.query || {};
     const statusFilterRaw = String(statusQuery || "aktif").trim().toLowerCase();
+    const requestedPageSize = Number(page_size ?? 0);
+    const safePageSize = Number.isFinite(requestedPageSize)
+      ? Math.max(0, Math.min(1000, Math.trunc(requestedPageSize)))
+      : 0;
     try {
       const req = pool.request();
       const supplierFilter =
@@ -811,8 +815,12 @@ export default async function pengadaanRoutes(fastify) {
       } else if (statusFilterRaw === "all") {
         statusFilter = "";
       }
+      if (safePageSize > 0) {
+        req.input("page_size", sql.Int, safePageSize);
+      }
       const res = await req.query(`
         SELECT
+          ${safePageSize > 0 ? "TOP (@page_size)" : ""}
           t.kode_t_pengadaan,
           t.kode_t_rpo,
           t.tgl,
