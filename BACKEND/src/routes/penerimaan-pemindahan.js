@@ -513,7 +513,7 @@ export default async function penerimaanPemindahanRoutes(fastify) {
                WHERE kode_barang_variant = @kode_barang_variant
                  AND kode_toko = @kode_toko;`
             );
-          const stokAwalBaik = Number(stokRes.recordset?.[0]?.qty_baik ?? stokRes.recordset?.[0]?.stok_available ?? 0);
+          const stokAwalBaik = Number(stokRes.recordset?.[0]?.stok_available ?? 0);
           const stokAwalRusak = Number(stokRes.recordset?.[0]?.qty_rusak ?? 0);
           const stokAkhirBaik = stokAwalBaik + qtyTerimaBaik;
           const stokAkhirRusak = stokAwalRusak + qtyTerimaRusak;

@@ -106,7 +106,35 @@ export default async function uploadRoutes(fastify) {
       }
     }
 
-    const publicUrl = `/uploads/master_barang/${safeName}`;
+    let publicUrl = `/uploads/master_barang/${safeName}`;
+    const mediaServiceUrl = (process.env.MEDIA_SERVICE_URL || "https://img.gwencosmetic.com").replace(/\/+$/, "");
+    const mediaServiceApiKey = process.env.MEDIA_SERVICE_API_KEY || "gwen_media_secret_api_key_2026";
+
+    if (mediaServiceUrl) {
+      try {
+        const fileBuffer = await readFile(targetPath);
+        const fd = new FormData();
+        fd.append("file", new Blob([fileBuffer], { type: mimetype }), filename || safeName);
+        fd.append("category", "products");
+
+        const mediaRes = await fetch(`${mediaServiceUrl}/api/v1/media/upload`, {
+          method: "POST",
+          headers: {
+            "x-api-key": mediaServiceApiKey,
+          },
+          body: fd,
+        });
+
+        const resJson = await mediaRes.json();
+        if (resJson.success && resJson.data?.url) {
+          publicUrl = resJson.data.url;
+          fastify.log.info({ event: "upload_media_service_success", url: publicUrl }, "Uploaded to Gwen Media Service");
+        }
+      } catch (err) {
+        fastify.log.warn({ event: "upload_media_service_fallback", err: err?.message }, "Failed to upload to Gwen Media Service, using local URL");
+      }
+    }
+
     fastify.log.info(
       {
         event: "upload_success",

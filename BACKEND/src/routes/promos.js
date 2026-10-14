@@ -6,13 +6,15 @@ export default async function promoRoutes(fastify) {
   const { sql, pool } = fastify.mssql;
   await ensureKasirTargetsTable({ pool, sql });
   const imageStorage = {
-    endpoint: process.env.IMAGE_STORAGE_ENDPOINT || "https://image.gwencosmetic.com",
-    publicUrl: (process.env.IMAGE_STORAGE_PUBLIC_URL || "https://image.gwencosmetic.com").replace(/\/+$/, ""),
+    endpoint: process.env.IMAGE_STORAGE_ENDPOINT || "https://img.gwencosmetic.com",
+    publicUrl: (process.env.IMAGE_STORAGE_PUBLIC_URL || "https://img.gwencosmetic.com").replace(/\/+$/, ""),
     bucket: process.env.IMAGE_STORAGE_BUCKET || "promo-images",
     region: process.env.IMAGE_STORAGE_REGION || "us-east-1",
     accessKeyId: process.env.IMAGE_STORAGE_ACCESS_KEY,
     secretAccessKey: process.env.IMAGE_STORAGE_SECRET_KEY,
   };
+  const mediaServiceUrl = (process.env.MEDIA_SERVICE_URL || imageStorage.endpoint || "https://img.gwencosmetic.com").replace(/\/+$/, "");
+  const mediaServiceApiKey = process.env.MEDIA_SERVICE_API_KEY || "gwen_media_secret_api_key_2026";
   const imageS3 = imageStorage.accessKeyId && imageStorage.secretAccessKey
     ? new S3Client({
         endpoint: imageStorage.endpoint,
@@ -822,7 +824,21 @@ export default async function promoRoutes(fastify) {
       const headerRes = await pool
         .request()
         .input("kode_t_promosi", sql.VarChar(50), kode)
-        .query(`SELECT * FROM dbo.GWEN_t_promosi WHERE kode_t_promosi = @kode_t_promosi;`);
+        .query(`
+          SELECT
+            p.*,
+            COALESCE(promo_usage.total_discount, p.budget_terpakai, 0) AS budget_terpakai
+          FROM dbo.GWEN_t_promosi p
+          LEFT JOIN (
+            SELECT
+              LTRIM(RTRIM(promo_code)) AS promo_code,
+              SUM(CAST(ISNULL(discount, 0) AS decimal(18,2))) AS total_discount
+            FROM dbo.pos_transaction_item_promos_central
+            WHERE ISNULL(is_active, 1) = 1
+            GROUP BY LTRIM(RTRIM(promo_code))
+          ) promo_usage ON promo_usage.promo_code = p.kode_t_promosi
+          WHERE p.kode_t_promosi = @kode_t_promosi;
+        `);
       if (!headerRes.recordset?.length) {
         return reply.code(404).send({ message: "Promosi tidak ditemukan" });
       }
@@ -1615,7 +1631,7 @@ export default async function promoRoutes(fastify) {
   fastify.post("/:id/banner-image", async (request, reply) => {
     const kode = String(request.params?.id || "").trim();
     if (!kode) return reply.code(400).send({ message: "kode promosi tidak valid" });
-    if (!imageS3) return reply.code(503).send({ message: "Image storage belum dikonfigurasi" });
+    if (!mediaServiceUrl && !imageS3) return reply.code(503).send({ message: "Image storage belum dikonfigurasi" });
 
     try {
       const file = await request.file();
@@ -1631,17 +1647,48 @@ export default async function promoRoutes(fastify) {
       if (!promo.recordset?.length) return reply.code(404).send({ message: "Promosi tidak ditemukan" });
 
       const body = await file.toBuffer();
-      const extension = String(file.filename || "").match(/\.[a-z0-9]+$/i)?.[0].toLowerCase() || ".jpg";
-      const objectKey = `promo/${kode}/${crypto.randomUUID()}${extension}`;
-      await imageS3.send(new PutObjectCommand({
-        Bucket: imageStorage.bucket,
-        Key: objectKey,
-        Body: body,
-        ContentType: file.mimetype,
-        CacheControl: "public, max-age=31536000, immutable",
-      }));
+      let bannerUrl = "";
 
-      const bannerUrl = `${imageStorage.publicUrl}/${imageStorage.bucket}/${objectKey}`;
+      if (mediaServiceUrl) {
+        try {
+          const fd = new FormData();
+          fd.append("file", new Blob([body], { type: file.mimetype || "image/jpeg" }), file.filename || "promo.jpg");
+          fd.append("category", "promotions");
+          const mediaRes = await fetch(`${mediaServiceUrl}/api/v1/media/upload`, {
+            method: "POST",
+            headers: {
+              "x-api-key": mediaServiceApiKey,
+            },
+            body: fd,
+          });
+          const resJson = await mediaRes.json();
+          if (resJson.success && resJson.data?.url) {
+            bannerUrl = resJson.data.url;
+          } else {
+            fastify.log.warn({ resJson }, "Media service response not success");
+          }
+        } catch (mediaErr) {
+          fastify.log.warn({ mediaErr: mediaErr?.message }, "Media service upload failed, trying S3 fallback");
+        }
+      }
+
+      if (!bannerUrl && imageS3) {
+        const extension = String(file.filename || "").match(/\.[a-z0-9]+$/i)?.[0].toLowerCase() || ".jpg";
+        const objectKey = `promo/${kode}/${crypto.randomUUID()}${extension}`;
+        await imageS3.send(new PutObjectCommand({
+          Bucket: imageStorage.bucket,
+          Key: objectKey,
+          Body: body,
+          ContentType: file.mimetype,
+          CacheControl: "public, max-age=31536000, immutable",
+        }));
+
+        bannerUrl = `${imageStorage.publicUrl}/${imageStorage.bucket}/${objectKey}`;
+      }
+
+      if (!bannerUrl) {
+        throw new Error("Gagal mengunggah banner gambar ke penyimpanan media");
+      }
       const existing = await pool
         .request()
         .input("kode_t_promosi", sql.VarChar(50), kode)
