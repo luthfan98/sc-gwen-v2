@@ -831,45 +831,11 @@ export default async function pengadaanRoutes(fastify) {
           t.catatan,
           t.status_pengadaan,
           t.status,
+          t.total,
+          t.total_sblm_ppn,
           t.total_akhir,
           ISNULL(tag.total_tagihan, 0) AS total_tagihan,
           ISNULL(tag.total_dibayar, 0) AS total_dibayar,
-          CASE
-            WHEN
-              COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) > 0
-              AND ISNULL(tag.total_dibayar, 0) >= COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0)
-              THEN 1
-            WHEN
-              COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) = 0
-              AND ISNULL(tag.total_tagihan, 0) > 0
-              AND ISNULL(tag.total_dibayar, 0) >= ISNULL(tag.total_tagihan, 0)
-              THEN 1
-            WHEN
-              ISNULL(tag.total_tagihan, 0) = 0
-              AND COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) > 0
-              AND ISNULL(paid_kontrabon.paid_kontrabon_total, 0) >= COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0)
-              THEN 1
-            ELSE 0
-          END AS is_lunas,
-          CASE
-            WHEN
-              COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) > 0
-              AND ISNULL(tag.total_dibayar, 0) >= COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0)
-              THEN 'PAID'
-            WHEN
-              COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) = 0
-              AND ISNULL(tag.total_tagihan, 0) > 0
-              AND ISNULL(tag.total_dibayar, 0) >= ISNULL(tag.total_tagihan, 0)
-              THEN 'PAID'
-            WHEN
-              ISNULL(tag.total_tagihan, 0) = 0
-              AND COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) > 0
-              AND ISNULL(paid_kontrabon.paid_kontrabon_total, 0) >= COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0)
-              THEN 'PAID'
-            WHEN ISNULL(tag.total_dibayar, 0) > 0
-              THEN 'PARTIALLY PAID'
-            ELSE 'NOT PAID'
-          END AS status_paid,
           ISNULL(pr.qty_dikirim, 0) AS qty_dikirim,
           ISNULL(pr.qty_diterima, 0) AS qty_diterima,
           t.created_by,
@@ -890,47 +856,14 @@ export default async function pengadaanRoutes(fastify) {
           GROUP BY kode_t_pengadaan
         ) tag
           ON tag.kode_t_pengadaan = t.kode_t_pengadaan
-        OUTER APPLY (
-          SELECT TOP 1 1 AS in_paid_kontrabon, ISNULL(k.nominal_total, ISNULL(k.nominal_faktur, 0)) AS paid_kontrabon_total
-          FROM dbo.GWEN_t_kontrabon k
-          WHERE ISNULL(k.status, 1) = 1
-            AND LTRIM(RTRIM(ISNULL(k.status_paid, ''))) = 'Paid'
-            AND (
-              LTRIM(RTRIM(ISNULL(k.kode_t_pengadaan, ''))) = LTRIM(RTRIM(t.kode_t_pengadaan))
-              OR ISNULL(k.kode_t_pengadaan, '') LIKE '%"' + LTRIM(RTRIM(t.kode_t_pengadaan)) + '"%'
-              OR (
-                ',' + REPLACE(REPLACE(REPLACE(ISNULL(k.kode_t_pengadaan, ''), '[', ''), ']', ''), '"', '') + ','
-              ) LIKE '%,' + LTRIM(RTRIM(t.kode_t_pengadaan)) + ',%'
-            )
-          ORDER BY ISNULL(k.tgl_bayar, k.created_at) DESC, k.id DESC
-        ) paid_kontrabon
         LEFT JOIN (
           SELECT
             tp.kode_t_pengadaan,
-            SUM(
-              CASE
-                WHEN COALESCE(p.is_active, p2.is_active, 1) = 1 THEN ISNULL(dp.jml_baik_dikirim, 0)
-                ELSE 0
-              END
-            ) AS qty_dikirim,
-            SUM(
-              CASE
-                WHEN COALESCE(p.is_active, p2.is_active, 1) = 1 THEN ISNULL(dp.jml_baik_diterima, 0)
-                ELSE 0
-              END
-            ) AS qty_diterima
+            SUM(ISNULL(dp.jml_baik_dikirim, 0)) AS qty_dikirim,
+            SUM(ISNULL(dp.jml_baik_diterima, 0)) AS qty_diterima
           FROM dbo.GWEN_t_penerimaan_pengadaan tp
           JOIN dbo.GWEN_d_penerimaan_pengadaan dp
             ON dp.kode_t_penerimaan_pengadaan = tp.kode_t_penerimaan_pengadaan
-          LEFT JOIN dbo.GWEN_d_pengadaan p
-            ON p.kode_d_pengadaan = dp.kode_d_pengadaan
-          OUTER APPLY (
-            SELECT TOP 1 p2.is_active
-            FROM dbo.GWEN_d_pengadaan p2
-            WHERE p2.kode_t_pengadaan = tp.kode_t_pengadaan
-              AND p2.kode_barang_variant = dp.kode_barang
-            ORDER BY p2.updated_at DESC, p2.created_at DESC
-          ) p2
           GROUP BY tp.kode_t_pengadaan
         ) pr
           ON pr.kode_t_pengadaan = t.kode_t_pengadaan
@@ -939,7 +872,78 @@ export default async function pengadaanRoutes(fastify) {
           ${supplierFilter}
         ORDER BY t.created_at DESC, t.kode_t_pengadaan DESC;
       `);
-      return reply.send(res.recordset || []);
+
+      const kbReq = pool.request();
+      const kbRes = await kbReq.query(`
+        SELECT
+          kode_t_pengadaan,
+          ISNULL(nominal_total, ISNULL(nominal_faktur, 0)) AS paid_kontrabon_total
+        FROM dbo.GWEN_t_kontrabon
+        WHERE ISNULL(status, 1) = 1
+          AND LTRIM(RTRIM(ISNULL(status_paid, ''))) = 'Paid'
+        ORDER BY ISNULL(tgl_bayar, created_at) DESC, id DESC;
+      `);
+
+      const paidKbMap = new Map();
+      for (const kb of kbRes.recordset || []) {
+        const raw = String(kb.kode_t_pengadaan || "").trim();
+        if (!raw) continue;
+        let list = [];
+        if (raw.startsWith("[") && raw.endsWith("]")) {
+          try {
+            list = JSON.parse(raw);
+          } catch {
+            list = raw.replace(/[\[\]"]/g, "").split(",");
+          }
+        } else {
+          list = raw.replace(/[\[\]"]/g, "").split(",");
+        }
+        for (const code of list) {
+          const clean = String(code || "").trim();
+          if (clean && !paidKbMap.has(clean)) {
+            paidKbMap.set(clean, Number(kb.paid_kontrabon_total || 0));
+          }
+        }
+      }
+
+      const rows = (res.recordset || []).map((row) => {
+        const totalAkhir = Number(row.total_akhir || 0);
+        const totalSblmPpn = Number(row.total_sblm_ppn || 0);
+        const total = Number(row.total || 0);
+        const baseTotal = totalAkhir > 0 ? totalAkhir : totalSblmPpn > 0 ? totalSblmPpn : total;
+
+        const totalTagihan = Number(row.total_tagihan || 0);
+        const totalDibayar = Number(row.total_dibayar || 0);
+        const paidKbTotal = paidKbMap.get(row.kode_t_pengadaan) ?? 0;
+
+        let isLunas = 0;
+        if (baseTotal > 0 && totalDibayar >= baseTotal) {
+          isLunas = 1;
+        } else if (baseTotal === 0 && totalTagihan > 0 && totalDibayar >= totalTagihan) {
+          isLunas = 1;
+        } else if (totalTagihan === 0 && baseTotal > 0 && paidKbTotal >= baseTotal) {
+          isLunas = 1;
+        }
+
+        let statusPaid = "NOT PAID";
+        if (baseTotal > 0 && totalDibayar >= baseTotal) {
+          statusPaid = "PAID";
+        } else if (baseTotal === 0 && totalTagihan > 0 && totalDibayar >= totalTagihan) {
+          statusPaid = "PAID";
+        } else if (totalTagihan === 0 && baseTotal > 0 && paidKbTotal >= baseTotal) {
+          statusPaid = "PAID";
+        } else if (totalDibayar > 0) {
+          statusPaid = "PARTIALLY PAID";
+        }
+
+        return {
+          ...row,
+          is_lunas: isLunas,
+          status_paid: statusPaid,
+        };
+      });
+
+      return reply.send(rows);
     } catch (err) {
       fastify.log.error({ err }, "Failed fetch pengadaan list");
       return reply.code(500).send({ message: "Gagal memuat data pengadaan" });

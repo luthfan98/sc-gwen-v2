@@ -50,7 +50,6 @@ export default function ListingPengadaanPage() {
     try {
       const params = new URLSearchParams({
         status: statusFilter === "all" ? "all" : statusFilter,
-        page_size: "200",
       });
       const res = await fetch(`${API_BASE}/pengadaan?${params.toString()}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -148,12 +147,33 @@ export default function ListingPengadaanPage() {
   }, [rows]);
 
   const filtered = useMemo(() => {
-    const key = search.toLowerCase();
+    const rawKey = search.trim().toLowerCase();
+    const normalizedKey = rawKey.replace(/00gw/g, "88gw");
+    const tokens = rawKey.split(/\s+/).filter(Boolean);
+
     return rows.filter((r) => {
-      const matchText =
-        String(r.kode_t_pengadaan || "").toLowerCase().includes(key) ||
-        String(r.kode_t_rpo || "").toLowerCase().includes(key) ||
-        String(r.supplier_nama || r.kode_supplier || "").toLowerCase().includes(key);
+      if (rawKey) {
+        const kode = String(r.kode_t_pengadaan || "").toLowerCase();
+        const rpo = String(r.kode_t_rpo || "").toLowerCase();
+        const supplier = String(r.supplier_nama || r.kode_supplier || "").toLowerCase();
+        const faktur = String(r.no_faktur_supplier || "").toLowerCase();
+        const catatan = String(r.catatan || "").toLowerCase();
+
+        const fullText = `${kode} ${rpo} ${supplier} ${faktur} ${catatan}`;
+
+        const matchDirect =
+          kode.includes(rawKey) ||
+          kode.includes(normalizedKey) ||
+          rpo.includes(rawKey) ||
+          supplier.includes(rawKey) ||
+          faktur.includes(rawKey) ||
+          catatan.includes(rawKey);
+
+        const matchTokens = tokens.length > 1 && tokens.every((tok) => fullText.includes(tok));
+
+        if (!matchDirect && !matchTokens) return false;
+      }
+
       const lunasVal = Number(r.is_lunas ?? 0) === 1 ? "lunas" : "belum";
       if (lunasFilter !== "all" && lunasVal !== lunasFilter) return false;
       if (supplierFilter !== "all" && String(r.kode_supplier || "") !== supplierFilter) return false;
@@ -165,7 +185,7 @@ export default function ListingPengadaanPage() {
         const createdDate = String(r.created_at || "").slice(0, 10);
         if (!createdDate || createdDate > createdTo) return false;
       }
-      return matchText;
+      return true;
     });
   }, [rows, search, lunasFilter, supplierFilter, createdFrom, createdTo]);
 
