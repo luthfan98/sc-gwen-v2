@@ -598,13 +598,20 @@ export default function HistoryKontrabonPage() {
       total_dibayar?: number | null;
     } | null
   ) => {
+    const rowNominal = parseNumber(row?.nominal || "");
+    if (rowNominal > 0) {
+      return rowNominal;
+    }
     const totalAkhir = Number(item?.total_akhir ?? 0);
     const totalTagihan = Number(item?.total_tagihan ?? 0);
     const sisa = Math.max(0, totalAkhir - totalTagihan);
     if (Number.isFinite(totalAkhir) && totalAkhir > 0) {
-      return totalTagihan > 0 && sisa > 0 ? sisa : totalAkhir;
+      if (totalTagihan > 0) {
+        return sisa;
+      }
+      return totalAkhir;
     }
-    return parseNumber(row?.nominal || "");
+    return rowNominal;
   }, []);
 
   const getPengadaanDisplayAmount = (
@@ -1362,8 +1369,8 @@ export default function HistoryKontrabonPage() {
                                       getPengadaanDisplayAmount(row, selectedItem)
                                     )}${
                                       Number(selectedItem?.total_tagihan ?? 0) > 0 &&
-                                      Number(selectedItem?.total_akhir ?? 0) - Number(selectedItem?.total_tagihan ?? 0) > 0
-                                        ? " (Sisa)"
+                                      Number(selectedItem?.total_tagihan ?? 0) < Number(selectedItem?.total_akhir ?? 0)
+                                        ? " (Sisa Titip Bayar)"
                                         : ""
                                     }`,
                                   }
@@ -1371,16 +1378,16 @@ export default function HistoryKontrabonPage() {
                               const options = available.map((opt) => {
                                 const totalAkhir = Number(opt.total_akhir ?? 0);
                                 const totalTagihan = Number(opt.total_tagihan ?? 0);
-                                const sisa = Math.max(0, totalAkhir - totalTagihan);
-                                const isPartial = totalTagihan > 0 && sisa > 0;
+                                const existingRow = pengadaanRows.find((item) => item.kode_t_pengadaan === opt.kode_t_pengadaan);
+                                const isPartial = totalTagihan > 0 && totalTagihan < totalAkhir;
                                 return {
                                   value: opt.kode_t_pengadaan,
                                   label: `${opt.kode_t_pengadaan} • ${formatCurrency(
                                     getPengadaanDisplayAmount(
-                                      pengadaanRows.find((item) => item.kode_t_pengadaan === opt.kode_t_pengadaan),
+                                      existingRow,
                                       opt
                                     )
-                                  )}${isPartial ? " (Sisa)" : ""}`,
+                                  )}${isPartial ? " (Sisa Titip Bayar)" : ""}`,
                                 };
                               });
                               return (
@@ -1773,6 +1780,16 @@ export default function HistoryKontrabonPage() {
                       tipe: row.jenis || "",
                     }));
 
+                    const pengadaanRowsPayload = pengadaanRows
+                      .filter((r) => r.kode_t_pengadaan)
+                      .map((r) => {
+                        const found = pengadaanList.find((p) => p.kode_t_pengadaan === r.kode_t_pengadaan);
+                        return {
+                          kode_t_pengadaan: r.kode_t_pengadaan,
+                          nominal: parseNumber(r.nominal || "") || getPengadaanGrossAmount(r, found),
+                        };
+                      });
+
                     const res = await fetch(
                       editingKontrabon
                         ? `${API_BASE}/kontrabon/${encodeURIComponent(nomorKontrabon)}`
@@ -1795,6 +1812,7 @@ export default function HistoryKontrabonPage() {
                                 no_faktur_pajak: noFakturPajak,
                                 tgl_faktur_pajak: tglFakturPajak,
                                 kode_t_pengadaan_list: kodePengadaan,
+                                pengadaan_rows: pengadaanRowsPayload,
                                 id_rekening: rekeningValue?.value || null,
                                 no_rekening: selectedRekening?.no_rekening || "",
                                 atas_nama: selectedRekening?.atas_nama || "",
@@ -1821,6 +1839,7 @@ export default function HistoryKontrabonPage() {
                                 nominal_total: totalNominalAkhir,
                                 biaya_lain: biayaLainPayload,
                                 kode_t_pengadaan_list: kodePengadaan,
+                                pengadaan_rows: pengadaanRowsPayload,
                                 no_faktur_pajak: noFakturPajak,
                                 tgl_faktur_pajak: tglFakturPajak,
                                 created_by: username,

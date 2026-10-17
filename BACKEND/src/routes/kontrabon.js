@@ -87,6 +87,7 @@ export default async function kontrabonRoutes(fastify) {
     tx,
     noInvoice,
     kodePengadaanList = [],
+    pengadaanRows = [],
     nominalTotal,
     noFaktur,
     tglFaktur,
@@ -120,10 +121,24 @@ export default async function kontrabonRoutes(fastify) {
         p.total_sblm_ppn AS pengadaan_total_sblm_ppn,
         p.ppn AS pengadaan_ppn,
         p.total_akhir AS pengadaan_total_akhir,
-        p.no_faktur_supplier AS pengadaan_no_faktur_supplier
+        p.no_faktur_supplier AS pengadaan_no_faktur_supplier,
+        ISNULL(other_tag.other_total_tagihan, 0) AS other_total_tagihan,
+        ISNULL(other_tag.other_total_dibayar, 0) AS other_total_dibayar
       FROM dbo.GWEN_t_tagihan t
       LEFT JOIN dbo.GWEN_t_pengadaan p
         ON p.kode_t_pengadaan = t.kode_t_pengadaan
+      LEFT JOIN (
+        SELECT
+          t_other.kode_t_pengadaan,
+          SUM(ISNULL(t_other.total_tagihan, 0)) AS other_total_tagihan,
+          SUM(ISNULL(t_other.total_dibayar, 0)) AS other_total_dibayar
+        FROM dbo.GWEN_t_tagihan t_other
+        WHERE t_other.no_invoice <> @no_invoice
+          AND ISNULL(t_other.is_void, 0) = 0
+          AND ISNULL(t_other.status, 1) = 1
+        GROUP BY t_other.kode_t_pengadaan
+      ) other_tag
+        ON other_tag.kode_t_pengadaan = t.kode_t_pengadaan
       WHERE t.no_invoice = @no_invoice
         AND ISNULL(t.is_void, 0) = 0
         AND ISNULL(t.status, 1) = 1
@@ -133,66 +148,92 @@ export default async function kontrabonRoutes(fastify) {
     const activeTagihan = activeRes.recordset || [];
     if (!activeTagihan.length) return;
 
-    const pengadaanTotal = roundMoney(
-      activeTagihan.reduce((sum, row) => sum + roundMoney(row.pengadaan_total_akhir ?? 0), 0)
-    );
-    const shouldUsePengadaanAmounts =
-      activeTagihan.length > 1 &&
-      pengadaanTotal > 0 &&
-      roundMoney(nominalTotal) === pengadaanTotal;
-
-    if (activeTagihan.length > 1 && pengadaanTotal > 0 && roundMoney(nominalTotal) !== pengadaanTotal) {
-      throw new Error(
-        `Nominal faktur ${roundMoney(nominalTotal)} tidak sama dengan total PEN ${pengadaanTotal}`
-      );
+    const rowNominalMap = new Map();
+    if (Array.isArray(pengadaanRows)) {
+      pengadaanRows.forEach((r) => {
+        const code = String(r?.kode_t_pengadaan || "").trim();
+        const nom = roundMoney(r?.nominal ?? 0);
+        if (code && nom > 0) {
+          rowNominalMap.set(code, nom);
+        }
+      });
     }
 
+    const rowsWithSisa = activeTagihan.map((row) => {
+      const pengadaanGross = roundMoney(
+        row.pengadaan_total_akhir ?? row.pengadaan_total_sblm_ppn ?? row.pengadaan_total ?? 0
+      );
+      const otherTagihan = roundMoney(row.other_total_tagihan ?? 0);
+      const sisa = Math.max(0, roundMoney(pengadaanGross - otherTagihan));
+      return {
+        ...row,
+        pengadaanGross,
+        otherTagihan,
+        sisa,
+      };
+    });
+
+    const sisaTotal = roundMoney(
+      rowsWithSisa.reduce((sum, row) => sum + row.sisa, 0)
+    );
     const existingTotal = roundMoney(
       activeTagihan.reduce((sum, row) => sum + roundMoney(row.total_tagihan ?? 0), 0)
     );
-    const basisTotal = existingTotal > 0 ? existingTotal : activeTagihan.length;
+
+    const clientRowsTotal = roundMoney(
+      rowsWithSisa.reduce((sum, row) => sum + roundMoney(rowNominalMap.get(row.kode_t_pengadaan) ?? 0), 0)
+    );
+    const useClientNominals =
+      rowNominalMap.size === activeTagihan.length &&
+      clientRowsTotal > 0 &&
+      clientRowsTotal === roundMoney(nominalTotal);
+
+    const useExistingNominals =
+      !useClientNominals &&
+      existingTotal > 0 &&
+      roundMoney(nominalTotal) === existingTotal;
+
+    const useSisaNominals =
+      !useClientNominals &&
+      !useExistingNominals &&
+      sisaTotal > 0 &&
+      roundMoney(nominalTotal) === sisaTotal;
+
+    if (sisaTotal > 0 && roundMoney(nominalTotal) > sisaTotal) {
+      throw new Error(
+        `Nominal faktur ${roundMoney(nominalTotal)} melebihi sisa tagihan PEN yang tersedia (${sisaTotal})`
+      );
+    }
+
+    const basisTotal = sisaTotal > 0 ? sisaTotal : (existingTotal > 0 ? existingTotal : activeTagihan.length);
     let allocatedTotal = 0;
 
-    for (let idx = 0; idx < activeTagihan.length; idx += 1) {
-      const row = activeTagihan[idx];
-      const isLast = idx === activeTagihan.length - 1;
-      const pengadaanRowTotal = roundMoney(row.pengadaan_total_akhir ?? 0);
-      const nextTotalFromPengadaan = shouldUsePengadaanAmounts && pengadaanRowTotal > 0;
-      const rowBasis =
-        existingTotal > 0 ? roundMoney(row.total_tagihan ?? 0) : 1;
-      const nextTotal = nextTotalFromPengadaan
-        ? pengadaanRowTotal
-        : isLast
-        ? roundMoney(nominalTotal - allocatedTotal)
-        : roundMoney((nominalTotal * rowBasis) / basisTotal);
+    for (let idx = 0; idx < rowsWithSisa.length; idx += 1) {
+      const row = rowsWithSisa[idx];
+      const isLast = idx === rowsWithSisa.length - 1;
+      let nextTotal;
+
+      if (useClientNominals) {
+        nextTotal = roundMoney(rowNominalMap.get(row.kode_t_pengadaan) ?? 0);
+      } else if (useExistingNominals) {
+        nextTotal = roundMoney(row.total_tagihan ?? 0);
+      } else if (useSisaNominals) {
+        nextTotal = row.sisa;
+      } else if (isLast) {
+        nextTotal = roundMoney(nominalTotal - allocatedTotal);
+      } else {
+        const rowBasis = row.sisa > 0 ? row.sisa : (existingTotal > 0 ? roundMoney(row.total_tagihan ?? 0) : 1);
+        nextTotal = roundMoney((nominalTotal * rowBasis) / basisTotal);
+      }
       allocatedTotal = roundMoney(allocatedTotal + nextTotal);
 
-      const sourceTotal = roundMoney(row.total_tagihan ?? 0);
-      const ratio = sourceTotal > 0 ? nextTotal / sourceTotal : 0;
-      const subtotal =
-        nextTotalFromPengadaan
-          ? roundMoney(row.pengadaan_total ?? nextTotal)
-          : sourceTotal > 0
-          ? roundMoney((row.subtotal ?? sourceTotal) * ratio)
-          : nextTotal;
-      const diskon = nextTotalFromPengadaan
-        ? roundMoney(row.pengadaan_diskon ?? 0)
-        : sourceTotal > 0
-        ? roundMoney((row.diskon ?? 0) * ratio)
-        : 0;
-      const totalStlhDiskon =
-        nextTotalFromPengadaan
-          ? roundMoney(row.pengadaan_total_stlh_diskon ?? subtotal - diskon)
-          : sourceTotal > 0
-          ? roundMoney((row.total_stlh_diskon ?? row.total_sblm_ppn ?? subtotal) * ratio)
-          : subtotal;
-      const totalSblmPpn =
-        nextTotalFromPengadaan
-          ? roundMoney(row.pengadaan_total_sblm_ppn ?? totalStlhDiskon)
-          : sourceTotal > 0
-          ? roundMoney((row.total_sblm_ppn ?? totalStlhDiskon) * ratio)
-          : totalStlhDiskon;
-      const ppn = nextTotalFromPengadaan ? roundMoney(row.pengadaan_ppn ?? nextTotal - totalSblmPpn) : roundMoney(nextTotal - totalSblmPpn);
+      const gross = row.pengadaanGross > 0 ? row.pengadaanGross : nextTotal;
+      const ratio = gross > 0 ? nextTotal / gross : 1;
+      const subtotal = roundMoney((row.pengadaan_total ?? nextTotal) * ratio);
+      const diskon = roundMoney((row.pengadaan_diskon ?? 0) * ratio);
+      const totalStlhDiskon = roundMoney((row.pengadaan_total_stlh_diskon ?? subtotal - diskon) * ratio);
+      const totalSblmPpn = roundMoney((row.pengadaan_total_sblm_ppn ?? totalStlhDiskon) * ratio);
+      const ppn = roundMoney(nextTotal - totalSblmPpn);
 
       await new sql.Request(tx)
         .input("kode_t_tagihan", sql.VarChar(255), row.kode_t_tagihan)
@@ -444,12 +485,29 @@ export default async function kontrabonRoutes(fastify) {
 
         const kode_t_tagihan = await generateDocCode({ prefix: "TAG", tx });
 
-        const subtotal = Number(peng.total ?? peng.total_akhir ?? 0);
-        const diskon = Number(peng.diskon ?? 0);
-        const totalStlhDiskon = Number(peng.total_stlh_diskon ?? subtotal - diskon);
-        const totalSblmPpn = Number(peng.total_sblm_ppn ?? totalStlhDiskon);
-        const ppn = Number(peng.ppn ?? 0);
-        const totalTagihan = Number(peng.total_akhir ?? totalSblmPpn + ppn);
+        const existingTagihanRes = await new sql.Request(tx)
+          .input("kode_t_pengadaan", sql.VarChar(255), kodeT)
+          .input("no_invoice", sql.VarChar(255), nomorKontrabon)
+          .query(`
+            SELECT
+              SUM(ISNULL(total_tagihan, 0)) AS total_tagihan_aktif
+            FROM dbo.GWEN_t_tagihan
+            WHERE kode_t_pengadaan = @kode_t_pengadaan
+              AND no_invoice <> @no_invoice
+              AND ISNULL(status, 1) = 1
+              AND ISNULL(is_void, 0) = 0;
+          `);
+        const otherTagihanTotal = roundMoney(existingTagihanRes.recordset?.[0]?.total_tagihan_aktif ?? 0);
+        const totalAkhirPengadaan = roundMoney(peng.total_akhir ?? peng.total_sblm_ppn ?? peng.total ?? 0);
+        const sisaTagihan = Math.max(0, roundMoney(totalAkhirPengadaan - otherTagihanTotal));
+        const totalTagihan = sisaTagihan > 0 ? sisaTagihan : totalAkhirPengadaan;
+        const ratio = totalAkhirPengadaan > 0 ? totalTagihan / totalAkhirPengadaan : 1;
+
+        const subtotal = roundMoney((peng.total ?? peng.total_akhir ?? 0) * ratio);
+        const diskon = roundMoney((peng.diskon ?? 0) * ratio);
+        const totalStlhDiskon = roundMoney((peng.total_stlh_diskon ?? subtotal - diskon) * ratio);
+        const totalSblmPpn = roundMoney((peng.total_sblm_ppn ?? totalStlhDiskon) * ratio);
+        const ppn = roundMoney(totalTagihan - totalSblmPpn);
 
         await new sql.Request(tx)
           .input("kode_t_tagihan", sql.VarChar(255), kode_t_tagihan)
@@ -2224,6 +2282,7 @@ export default async function kontrabonRoutes(fastify) {
           tx,
           noInvoice: String(no),
           kodePengadaanList: uniquePengadaanList,
+          pengadaanRows: body.pengadaan_rows,
           nominalTotal: normalizedAmounts.nominalFaktur,
           noFaktur: body.no_faktur,
           tglFaktur: body.tgl_faktur,
@@ -2233,6 +2292,20 @@ export default async function kontrabonRoutes(fastify) {
           updatedBy,
           now,
         });
+
+        const rekapUpdateReq = new sql.Request(tx)
+          .input("no_kontrabon", sql.VarChar(255), String(no))
+          .input("nominal_faktur", sql.Decimal(20, 2), normalizedAmounts.nominalFaktur || null)
+          .input("nominal_total", sql.Decimal(20, 2), normalizedAmounts.nominalTotal || null)
+          .input("biaya_lain", sql.NVarChar(sql.MAX), biayaLainPayload || null);
+        await rekapUpdateReq.query(`
+          UPDATE dbo.GWEN_tbl_rekap
+          SET total = @nominal_faktur,
+              gt = @nominal_total,
+              tambahan = @biaya_lain
+          WHERE nokontrabon = @no_kontrabon
+            AND ISNULL(stspaid, '') <> 'Paid';
+        `);
 
         await tx.commit();
         return reply.send({ message: "Kontrabon berhasil diupdate" });
@@ -2345,6 +2418,15 @@ export default async function kontrabonRoutes(fastify) {
       const requestedNominalTotal = normalizedAmounts.nominalFaktur;
       const tagihanCodes = [];
       let createdTagihanTotal = 0;
+      const customNominalMap = new Map();
+      if (Array.isArray(body.pengadaan_rows)) {
+        body.pengadaan_rows.forEach((r) => {
+          const code = String(r?.kode_t_pengadaan || "").trim();
+          const nom = roundMoney(r?.nominal ?? 0);
+          if (code && nom > 0) customNominalMap.set(code, nom);
+        });
+      }
+
       for (const kodeT of uniquePengadaan) {
         const pengRes = await new sql.Request(tx)
           .input("kode_t_pengadaan", sql.VarChar(255), kodeT)
@@ -2393,7 +2475,15 @@ export default async function kontrabonRoutes(fastify) {
         tagihanCodes.push(kode_t_tagihan);
 
         let totalTagihan = sisaTagihanPengadaan;
-        if (uniquePengadaan.length === 1 && requestedNominalTotal > 0) {
+        if (customNominalMap.has(kodeT)) {
+          const customNom = customNominalMap.get(kodeT);
+          if (customNom > sisaTagihanPengadaan) {
+            throw new Error(
+              `Nominal kontrabon ${customNom} melebihi sisa tagihan ${sisaTagihanPengadaan} untuk ${kodeT}`
+            );
+          }
+          totalTagihan = customNom;
+        } else if (uniquePengadaan.length === 1 && requestedNominalTotal > 0) {
           if (requestedNominalTotal > sisaTagihanPengadaan) {
             throw new Error(
               `Nominal kontrabon ${requestedNominalTotal} melebihi sisa tagihan ${sisaTagihanPengadaan} untuk ${kodeT}`
@@ -2477,12 +2567,12 @@ export default async function kontrabonRoutes(fastify) {
 
       if (
         uniquePengadaan.length > 1 &&
-        roundMoney(normalizedAmounts.nominalFaktur) !== roundMoney(createdTagihanTotal)
+        roundMoney(normalizedAmounts.nominalFaktur) > roundMoney(createdTagihanTotal)
       ) {
         throw new Error(
-          `Nominal faktur ${roundMoney(normalizedAmounts.nominalFaktur)} tidak sama dengan total PEN ${roundMoney(
+          `Nominal faktur ${roundMoney(normalizedAmounts.nominalFaktur)} melebihi sisa tagihan PEN yang tersedia (${roundMoney(
             createdTagihanTotal
-          )}`
+          )})`
         );
       }
 
