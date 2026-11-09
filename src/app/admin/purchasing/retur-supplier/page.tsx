@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw, RotateCcw, Search, XCircle } from "lucide-react";
+import { Plus, RefreshCw, RotateCcw, Search, XCircle, FileSpreadsheet } from "lucide-react";
 
 type ReturSupplierHeader = {
   kode_t_retur_supplier: string;
@@ -80,6 +80,200 @@ export default function ReturSupplierPage() {
   const [submittingCancel, setSubmittingCancel] = useState(false);
   const [errorCancel, setErrorCancel] = useState<string | null>(null);
   const [cancelNote, setCancelNote] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [exportingDetail, setExportingDetail] = useState(false);
+
+  const exportToExcel = async () => {
+    if (filteredRows.length === 0) return;
+    setExporting(true);
+    try {
+      const XLSX = await import("xlsx");
+
+      // Sheet 1: Ringkasan Retur
+      const headerSummary = [
+        "No",
+        "Kode Retur",
+        "Tanggal Retur",
+        "No. PO Pengadaan",
+        "Kode Supplier",
+        "Nama Supplier",
+        "Kode Gudang",
+        "Nama Gudang",
+        "Total Item",
+        "Total Qty",
+        "Total Nominal",
+        "Status Retur",
+        "Catatan",
+        "Dibuat Oleh",
+        "Waktu Input",
+      ];
+
+      const rowsSummary = filteredRows.map((row, idx) => [
+        idx + 1,
+        row.kode_t_retur_supplier || "",
+        formatDate(row.tgl),
+        row.kode_t_pengadaan || "-",
+        row.kode_supplier || "",
+        row.nama_supplier || "",
+        row.kode_gudang || "",
+        row.nama_gudang || "",
+        Number(row.total_item ?? 0),
+        Number(row.total_qty ?? 0),
+        Number(row.total_nominal ?? 0),
+        row.status_retur || "Draft",
+        row.catatan || "",
+        row.created_by || "-",
+        row.created_at ? new Date(row.created_at).toLocaleString("id-ID") : "-",
+      ]);
+
+      const wsSummary = XLSX.utils.aoa_to_sheet([headerSummary, ...rowsSummary]);
+      wsSummary["!cols"] = headerSummary.map((h) => ({ wch: Math.max(12, h.length + 2) }));
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, wsSummary, "Ringkasan Retur");
+
+      // Sheet 2: Detail Barang Retur
+      try {
+        const detailRes = await fetch(`${API_BASE}/retur-supplier/export-data`, { cache: "no-store" });
+        if (detailRes.ok) {
+          const detailData = await detailRes.json();
+          if (Array.isArray(detailData) && detailData.length > 0) {
+            const activeKodes = new Set(filteredRows.map((r) => r.kode_t_retur_supplier));
+            const relevantItems = detailData.filter((item: any) => activeKodes.has(item.kode_t_retur_supplier));
+
+            const headerDetail = [
+              "No",
+              "Kode Retur",
+              "Tanggal",
+              "No. PO",
+              "Supplier",
+              "Gudang",
+              "Kode Varian",
+              "Barcode",
+              "Nama Barang",
+              "Nama Varian",
+              "Qty",
+              "Satuan",
+              "Harga Beli",
+              "Subtotal",
+              "Alasan Retur",
+              "Status Item",
+            ];
+
+            const rowsDetail = relevantItems.map((item: any, idx: number) => [
+              idx + 1,
+              item.kode_t_retur_supplier || "",
+              formatDate(item.tgl),
+              item.kode_t_pengadaan || "-",
+              item.nama_supplier || "",
+              item.nama_gudang || "",
+              item.kode_barang_variant || "",
+              item.barcode_varian || "",
+              item.nama_barang || "",
+              item.nama_varian || "",
+              Number(item.qty ?? 0),
+              item.satuan || "PCS",
+              Number(item.harga_beli ?? 0),
+              Number(item.subtotal ?? 0),
+              item.alasan_retur || "-",
+              Number(item.is_batal_retur) === 1 ? "Batal Retur" : "Retur Aktif",
+            ]);
+
+            const wsDetail = XLSX.utils.aoa_to_sheet([headerDetail, ...rowsDetail]);
+            wsDetail["!cols"] = headerDetail.map((h) => ({ wch: Math.max(12, h.length + 2) }));
+            XLSX.utils.book_append_sheet(workbook, wsDetail, "Detail Barang Retur");
+          }
+        }
+      } catch (e) {
+        console.warn("Could not fetch full details for excel, continuing with summary only", e);
+      }
+
+      const filename = `retur-supplier-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      const wbout = XLSX.write(workbook, { bookType: "xlsx", type: "array", compression: true });
+      const blob = new Blob([wbout], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed export excel retur supplier", err);
+      alert("Gagal mengunduh Excel retur supplier.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const exportCurrentDetailExcel = async () => {
+    if (!detail) return;
+    setExportingDetail(true);
+    try {
+      const XLSX = await import("xlsx");
+      const headerItem = [
+        "No",
+        "Kode Varian",
+        "Barcode",
+        "Nama Barang",
+        "Nama Varian",
+        "Qty",
+        "Satuan",
+        "Harga Beli",
+        "Subtotal",
+        "Alasan Retur",
+        "Status",
+      ];
+      const rowsItem = (detail.items || []).map((it, idx) => [
+        idx + 1,
+        it.kode_barang_variant || "-",
+        it.barcode_varian || "-",
+        it.nama_barang || "-",
+        it.nama_varian || "-",
+        Number(it.qty ?? 0),
+        it.satuan || "PCS",
+        Number(it.harga_beli ?? 0),
+        Number(it.subtotal ?? 0),
+        it.alasan_retur || "-",
+        Number(it.is_batal_retur) === 1 ? "Batal Retur" : "Aktif",
+      ]);
+
+      const ws = XLSX.utils.aoa_to_sheet([
+        ["KODE RETUR", detail.header?.kode_t_retur_supplier || ""],
+        ["TANGGAL", formatDate(detail.header?.tgl)],
+        ["SUPPLIER", detail.header?.nama_supplier || ""],
+        ["GUDANG", detail.header?.nama_gudang || ""],
+        ["STATUS", detail.header?.status_retur || ""],
+        ["TOTAL ITEM", Number(detail.header?.total_item ?? 0)],
+        ["TOTAL QTY", Number(detail.header?.total_qty ?? 0)],
+        ["TOTAL NOMINAL", Number(detail.header?.total_nominal ?? 0)],
+        [],
+        headerItem,
+        ...rowsItem,
+      ]);
+
+      ws["!cols"] = headerItem.map((h) => ({ wch: Math.max(14, h.length + 2) }));
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Detail Retur");
+      const filename = `detail-retur-${detail.header?.kode_t_retur_supplier || "item"}.xlsx`;
+      const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array", compression: true });
+      const blob = new Blob([wbout], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed export single retur excel", err);
+      alert("Gagal mengunduh Excel detail retur.");
+    } finally {
+      setExportingDetail(false);
+    }
+  };
 
   const loadHeaders = useCallback(async () => {
     setLoading(true);

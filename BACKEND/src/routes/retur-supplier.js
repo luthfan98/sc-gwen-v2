@@ -661,6 +661,59 @@ export default async function returSupplierRoutes(fastify) {
     }
   });
 
+  fastify.get("/export-data", async (request, reply) => {
+    try {
+      const res = await pool.request().query(`
+        SELECT
+          t.kode_t_retur_supplier,
+          t.tgl,
+          t.kode_t_pengadaan,
+          t.kode_supplier,
+          COALESCE(
+            s.nama COLLATE DATABASE_DEFAULT,
+            t.nama_supplier COLLATE DATABASE_DEFAULT,
+            t.kode_supplier COLLATE DATABASE_DEFAULT
+          ) AS nama_supplier,
+          t.kode_gudang,
+          COALESCE(
+            g.nama COLLATE DATABASE_DEFAULT,
+            t.nama_gudang COLLATE DATABASE_DEFAULT,
+            t.kode_gudang COLLATE DATABASE_DEFAULT
+          ) AS nama_gudang,
+          t.status_retur,
+          t.catatan,
+          d.kode_d_retur_supplier,
+          d.kode_barang_variant,
+          d.barcode_varian,
+          COALESCE(
+            d.nama_barang COLLATE DATABASE_DEFAULT,
+            b.nama COLLATE DATABASE_DEFAULT
+          ) AS nama_barang,
+          COALESCE(
+            d.nama_varian COLLATE DATABASE_DEFAULT,
+            v.nama_varian COLLATE DATABASE_DEFAULT
+          ) AS nama_varian,
+          d.qty,
+          d.satuan,
+          d.harga_beli,
+          d.subtotal,
+          d.alasan_retur,
+          ISNULL(d.is_batal_retur, 0) AS is_batal_retur
+        FROM dbo.GWEN_d_retur_supplier d
+        INNER JOIN dbo.GWEN_t_retur_supplier t ON t.kode_t_retur_supplier = d.kode_t_retur_supplier
+        LEFT JOIN dbo.m_supplier s ON s.kode_supplier COLLATE DATABASE_DEFAULT = t.kode_supplier COLLATE DATABASE_DEFAULT
+        LEFT JOIN dbo.m_gudang g ON g.kode_gudang COLLATE DATABASE_DEFAULT = t.kode_gudang COLLATE DATABASE_DEFAULT
+        LEFT JOIN dbo.m_barang_varian v ON v.kode_barang_variant COLLATE DATABASE_DEFAULT = d.kode_barang_variant COLLATE DATABASE_DEFAULT
+        LEFT JOIN dbo.m_barang b ON b.id_barang = v.id_barang
+        ORDER BY t.created_at DESC, d.kode_d_retur_supplier ASC;
+      `);
+      return reply.send(res.recordset || []);
+    } catch (err) {
+      fastify.log.error({ err }, "Failed fetch retur supplier export data");
+      return reply.code(500).send({ message: "Gagal memuat data export retur supplier" });
+    }
+  });
+
   fastify.get("/:kode", async (request, reply) => {
     const kode = String(request.params?.kode || "").trim();
     if (!kode) return reply.code(400).send({ message: "kode retur supplier wajib diisi" });
