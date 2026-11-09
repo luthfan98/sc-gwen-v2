@@ -570,6 +570,8 @@ export default async function posTransactionRoutes(fastify) {
           mk.nama_merk AS merk_name,
           COALESCE(kh.harga_1, b.harga_jual_sat_1) AS harga_jual,
           ISNULL(st.stok_toko, 0) AS stok_toko,
+          ISNULL(sg.stok_gudang, 0) AS stok_gudang,
+          (ISNULL(st.stok_toko, 0) + ISNULL(sg.stok_gudang, 0)) AS total_stok,
           ISNULL(po.qty_po_tertinggi, 0) AS qty_po_tertinggi,
           mt.total_qty,
           mt.total_sales,
@@ -592,6 +594,11 @@ export default async function posTransactionRoutes(fastify) {
           WHERE t.kode_barang_variant COLLATE DATABASE_DEFAULT = mt.kode_barang_variant COLLATE DATABASE_DEFAULT
         ) st
         OUTER APPLY (
+          SELECT SUM(g.stok) AS stok_gudang
+          FROM dbo.GWEN_mn_barang_gudang_variant g
+          WHERE g.kode_barang_variant COLLATE DATABASE_DEFAULT = mt.kode_barang_variant COLLATE DATABASE_DEFAULT
+        ) sg
+        OUTER APPLY (
           SELECT MAX(ISNULL(d.qty, 0)) AS qty_po_tertinggi
           FROM dbo.GWEN_d_pengadaan d
           WHERE d.kode_barang_variant COLLATE DATABASE_DEFAULT = mt.kode_barang_variant COLLATE DATABASE_DEFAULT
@@ -604,6 +611,116 @@ export default async function posTransactionRoutes(fastify) {
     } catch (err) {
       fastify.log.error({ err }, "Failed fetch transaction items summary");
       return reply.code(500).send({ message: "Gagal memuat transaksi per item" });
+    }
+  });
+
+  fastify.get("/transaction-items-stock-detail", async (request, reply) => {
+    const kodeVarian = String(request.query?.kode_barang_variant || "").trim();
+    const barcode = String(request.query?.barcode || "").trim();
+    const itemCode = String(request.query?.item_code || "").trim();
+
+    try {
+      let resolvedKode = kodeVarian;
+
+      if (!resolvedKode && (barcode || itemCode)) {
+        const findReq = pool.request();
+        findReq.input("barcode", sql.VarChar, barcode || "");
+        findReq.input("itemCode", sql.VarChar, itemCode || "");
+        const findRes = await findReq.query(`
+          SELECT TOP 1 kode_barang_variant
+          FROM dbo.m_barang_varian
+          WHERE (barcode_varian IS NOT NULL AND barcode_varian = @barcode AND @barcode <> '')
+             OR (kode_barang_variant IS NOT NULL AND (kode_barang_variant = @itemCode OR kode_barang_variant = @barcode))
+             OR (kode_varian IS NOT NULL AND kode_varian = @itemCode AND @itemCode <> '')
+        `);
+        resolvedKode = findRes.recordset?.[0]?.kode_barang_variant || "";
+      }
+
+      const reqDetail = pool.request();
+      reqDetail.input("kbv", sql.VarChar, resolvedKode);
+
+      const infoRes = await reqDetail.query(`
+        SELECT TOP 1
+          v.kode_barang_variant,
+          v.nama_varian,
+          v.barcode_varian,
+          b.nama AS nama_barang
+        FROM dbo.m_barang_varian v
+        LEFT JOIN dbo.m_barang b ON b.id_barang = v.id_barang
+        WHERE v.kode_barang_variant COLLATE DATABASE_DEFAULT = @kbv
+      `);
+
+      const reqToko = pool.request();
+      reqToko.input("kbv", sql.VarChar, resolvedKode);
+      const tokoRes = await reqToko.query(`
+        SELECT 
+          mt.kode_toko,
+          mt.nama_toko,
+          ISNULL(t.stok_available, 0) AS stok,
+          ISNULL(t.qty_baik, 0) AS qty_baik,
+          ISNULL(t.qty_rusak, 0) AS qty_rusak
+        FROM dbo.m_toko mt
+        LEFT JOIN dbo.GWEN_mn_barang_toko_variant t 
+          ON t.kode_toko COLLATE DATABASE_DEFAULT = mt.kode_toko COLLATE DATABASE_DEFAULT
+          AND t.kode_barang_variant COLLATE DATABASE_DEFAULT = @kbv
+        WHERE mt.status = 1
+        ORDER BY mt.nama_toko ASC
+      `);
+
+      const reqGudang = pool.request();
+      reqGudang.input("kbv", sql.VarChar, resolvedKode);
+      const gudangRes = await reqGudang.query(`
+        SELECT 
+          mg.kode_gudang,
+          mg.nama AS nama_gudang,
+          mg.jenis_gudang,
+          ISNULL(mg.is_gudang_bs, 0) AS is_gudang_bs,
+          ISNULL(g.stok, 0) AS stok,
+          ISNULL(g.qty_baik, 0) AS qty_baik,
+          ISNULL(g.qty_rusak, 0) AS qty_rusak
+        FROM dbo.m_gudang mg
+        LEFT JOIN dbo.GWEN_mn_barang_gudang_variant g 
+          ON g.kode_gudang COLLATE DATABASE_DEFAULT = mg.kode_gudang COLLATE DATABASE_DEFAULT
+          AND g.kode_barang_variant COLLATE DATABASE_DEFAULT = @kbv
+        WHERE mg.status = 1
+        ORDER BY mg.nama ASC
+      `);
+
+      const tokoList = (tokoRes.recordset || []).map((t) => ({
+        kode_toko: t.kode_toko,
+        nama_toko: t.nama_toko,
+        stok: Number(t.stok || 0),
+        qty_baik: Number(t.qty_baik || 0),
+        qty_rusak: Number(t.qty_rusak || 0),
+      }));
+
+      const gudangList = (gudangRes.recordset || []).map((g) => ({
+        kode_gudang: g.kode_gudang,
+        nama_gudang: g.nama_gudang,
+        jenis_gudang: g.jenis_gudang,
+        is_gudang_bs: Number(g.is_gudang_bs || 0),
+        stok: Number(g.stok || 0),
+        qty_baik: Number(g.qty_baik || 0),
+        qty_rusak: Number(g.qty_rusak || 0),
+      }));
+
+      const totalToko = tokoList.reduce((acc, curr) => acc + curr.stok, 0);
+      const totalGudang = gudangList.reduce((acc, curr) => acc + curr.stok, 0);
+      const info = infoRes.recordset?.[0] || {};
+
+      return reply.send({
+        kode_barang_variant: resolvedKode,
+        item_name: info.nama_varian || info.nama_barang || "",
+        barcode: info.barcode_varian || barcode || "",
+        total_stok: totalToko + totalGudang,
+        total_toko: totalToko,
+        total_gudang: totalGudang,
+        toko: tokoList,
+        gudang: gudangList,
+      });
+    } catch (err) {
+      fastify.log.error({ err }, "Failed fetch transaction items stock detail");
+      return reply.code(500).send({ message: "Gagal memuat detail stok barang" });
     }
   });
 
