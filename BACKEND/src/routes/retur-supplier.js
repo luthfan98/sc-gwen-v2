@@ -1077,6 +1077,73 @@ export default async function returSupplierRoutes(fastify) {
           );
       }
 
+      if (totalNominal > 0 && statusRetur === "Selesai") {
+        const depRes = await new sql.Request(tx)
+          .input("kode_supplier", sql.VarChar(255), kodeSupplier)
+          .query(`
+            SELECT saldo_deposit
+            FROM dbo.GWEN_m_supplier_deposit WITH (UPDLOCK, ROWLOCK)
+            WHERE kode_supplier = @kode_supplier;
+          `);
+
+        const saldoAwal = Number(depRes.recordset?.[0]?.saldo_deposit || 0);
+        const saldoAkhir = saldoAwal + totalNominal;
+        const yyMMdd = new Date().toISOString().slice(2, 10).replace(/-/g, "");
+        const kodeMutasi = `MUT.DEP.IN.${yyMMdd}.${Date.now().toString().slice(-6)}`;
+
+        await new sql.Request(tx)
+          .input("kode_mutasi", sql.VarChar(100), kodeMutasi)
+          .input("tgl_mutasi", sql.DateTime, tgl)
+          .input("kode_supplier", sql.VarChar(255), kodeSupplier)
+          .input("nama_supplier", sql.NVarChar(255), namaSupplier)
+          .input("tipe_mutasi", sql.VarChar(50), "MASUK")
+          .input("kode_ref", sql.VarChar(255), kodeHeader)
+          .input("saldo_awal", sql.Decimal(20, 2), saldoAwal)
+          .input("nominal", sql.Decimal(20, 2), totalNominal)
+          .input("saldo_akhir", sql.Decimal(20, 2), saldoAkhir)
+          .input("keterangan", sql.NVarChar(500), `Retur Pembelian ${kodeHeader}`)
+          .input("created_by", sql.VarChar(255), createdBy)
+          .input("created_at", sql.DateTime, now)
+          .query(`
+            INSERT INTO dbo.GWEN_t_supplier_deposit_ledger (
+              kode_mutasi, tgl_mutasi, kode_supplier, nama_supplier, tipe_mutasi, kode_ref,
+              saldo_awal, nominal, saldo_akhir, keterangan, created_by, created_at
+            ) VALUES (
+              @kode_mutasi, @tgl_mutasi, @kode_supplier, @nama_supplier, @tipe_mutasi, @kode_ref,
+              @saldo_awal, @nominal, @saldo_akhir, @keterangan, @created_by, @created_at
+            );
+          `);
+
+        if (depRes.recordset?.length > 0) {
+          await new sql.Request(tx)
+            .input("kode_supplier", sql.VarChar(255), kodeSupplier)
+            .input("saldo_deposit", sql.Decimal(20, 2), saldoAkhir)
+            .input("nama_supplier", sql.NVarChar(255), namaSupplier)
+            .input("updated_by", sql.VarChar(255), createdBy)
+            .query(`
+              UPDATE dbo.GWEN_m_supplier_deposit
+              SET saldo_deposit = @saldo_deposit,
+                  nama_supplier = @nama_supplier,
+                  updated_at = GETDATE(),
+                  updated_by = @updated_by
+              WHERE kode_supplier = @kode_supplier;
+            `);
+        } else {
+          await new sql.Request(tx)
+            .input("kode_supplier", sql.VarChar(255), kodeSupplier)
+            .input("nama_supplier", sql.NVarChar(255), namaSupplier)
+            .input("saldo_deposit", sql.Decimal(20, 2), saldoAkhir)
+            .input("updated_by", sql.VarChar(255), createdBy)
+            .query(`
+              INSERT INTO dbo.GWEN_m_supplier_deposit (
+                kode_supplier, nama_supplier, saldo_deposit, updated_at, updated_by
+              ) VALUES (
+                @kode_supplier, @nama_supplier, @saldo_deposit, GETDATE(), @updated_by
+              );
+            `);
+        }
+      }
+
       await tx.commit();
       return reply.send({ message: "Retur supplier tersimpan", kode_t_retur_supplier: kodeHeader });
     } catch (err) {

@@ -258,4 +258,242 @@ export default async function tagihanRoutes(fastify) {
       return reply.code(500).send({ message: "Gagal memuat data tagihan" });
     }
   });
+
+  fastify.post("/:kode/pelunasan", async (request, reply) => {
+    const kode = String(request.params?.kode || "").trim();
+    const body = request.body || {};
+    const nominalBayar = Number(body.nominal_bayar || 0);
+    const sumberPembayaran = String(body.sumber_pembayaran || "").trim().toUpperCase();
+    const tglBayar = body.tgl_bayar ? new Date(body.tgl_bayar) : new Date();
+    const bank = String(body.bank || "").trim() || null;
+    const noReferensi = String(body.no_referensi || "").trim() || null;
+    const catatan = String(body.catatan || "").trim() || null;
+    const createdBy = String(body.created_by || "Admin").trim() || "Admin";
+
+    if (!kode) return reply.code(400).send({ message: "Kode tagihan wajib diisi" });
+    if (!Number.isFinite(nominalBayar) || nominalBayar <= 0) {
+      return reply.code(400).send({ message: "Nominal pembayaran harus lebih besar dari 0" });
+    }
+    if (!sumberPembayaran) {
+      return reply.code(400).send({ message: "Sumber pembayaran wajib dipilih" });
+    }
+
+    const tx = new sql.Transaction(pool);
+    try {
+      await tx.begin();
+
+      const tagihanRes = await new sql.Request(tx)
+        .input("kode_t_tagihan", sql.VarChar(255), kode)
+        .query(`
+          SELECT
+            kode_t_tagihan,
+            kode_t_pengadaan,
+            kode_supplier,
+            nama_supplier,
+            total_tagihan,
+            ISNULL(total_dibayar, 0) AS total_dibayar,
+            is_lunas,
+            is_void
+          FROM dbo.GWEN_t_tagihan WITH (UPDLOCK, ROWLOCK)
+          WHERE kode_t_tagihan = @kode_t_tagihan;
+        `);
+
+      const tagihan = tagihanRes.recordset?.[0];
+      if (!tagihan) {
+        throw new Error("VALIDATION:Tagihan tidak ditemukan");
+      }
+      if (tagihan.is_void) {
+        throw new Error("VALIDATION:Tagihan ini sudah dibatalkan (void)");
+      }
+
+      const totalTagihan = Number(tagihan.total_tagihan || 0);
+      const totalDibayarAwal = Number(tagihan.total_dibayar || 0);
+      const sisaTagihan = Math.max(0, totalTagihan - totalDibayarAwal);
+
+      if (sisaTagihan <= 0) {
+        throw new Error("VALIDATION:Tagihan ini sudah lunas");
+      }
+      if (nominalBayar > sisaTagihan) {
+        throw new Error(
+          `VALIDATION:Nominal pembayaran (Rp ${nominalBayar.toLocaleString("id-ID")}) melebihi sisa tagihan (Rp ${sisaTagihan.toLocaleString("id-ID")})`
+        );
+      }
+
+      const kodeSupplier = String(tagihan.kode_supplier || "").trim();
+      const namaSupplier = String(tagihan.nama_supplier || "").trim();
+
+      if (sumberPembayaran === "DEPOSIT_RETUR") {
+        if (!kodeSupplier) {
+          throw new Error("VALIDATION:Kode supplier pada tagihan tidak valid");
+        }
+
+        const depositRes = await new sql.Request(tx)
+          .input("kode_supplier", sql.VarChar(255), kodeSupplier)
+          .query(`
+            SELECT kode_supplier, saldo_deposit
+            FROM dbo.GWEN_m_supplier_deposit WITH (UPDLOCK, ROWLOCK)
+            WHERE kode_supplier = @kode_supplier;
+          `);
+
+        const saldoAwal = Number(depositRes.recordset?.[0]?.saldo_deposit || 0);
+        if (saldoAwal < nominalBayar) {
+          throw new Error(
+            `VALIDATION:Saldo deposit retur tidak mencukupi. Saldo saat ini: Rp ${saldoAwal.toLocaleString("id-ID")}, dibutuhkan: Rp ${nominalBayar.toLocaleString("id-ID")}`
+          );
+        }
+
+        const saldoAkhir = saldoAwal - nominalBayar;
+        const yyMMdd = new Date().toISOString().slice(2, 10).replace(/-/g, "");
+        const kodeMutasi = `MUT.DEP.OUT.${yyMMdd}.${Date.now().toString().slice(-6)}`;
+
+        await new sql.Request(tx)
+          .input("kode_mutasi", sql.VarChar(100), kodeMutasi)
+          .input("tgl_mutasi", sql.DateTime, tglBayar)
+          .input("kode_supplier", sql.VarChar(255), kodeSupplier)
+          .input("nama_supplier", sql.NVarChar(255), namaSupplier)
+          .input("tipe_mutasi", sql.VarChar(50), "KELUAR")
+          .input("kode_ref", sql.VarChar(255), kode)
+          .input("saldo_awal", sql.Decimal(20, 2), saldoAwal)
+          .input("nominal", sql.Decimal(20, 2), nominalBayar)
+          .input("saldo_akhir", sql.Decimal(20, 2), saldoAkhir)
+          .input("keterangan", sql.NVarChar(500), catatan || `Pelunasan Tagihan ${kode}`)
+          .input("created_by", sql.VarChar(255), createdBy)
+          .input("created_at", sql.DateTime, new Date())
+          .query(`
+            INSERT INTO dbo.GWEN_t_supplier_deposit_ledger (
+              kode_mutasi, tgl_mutasi, kode_supplier, nama_supplier, tipe_mutasi, kode_ref,
+              saldo_awal, nominal, saldo_akhir, keterangan, created_by, created_at
+            ) VALUES (
+              @kode_mutasi, @tgl_mutasi, @kode_supplier, @nama_supplier, @tipe_mutasi, @kode_ref,
+              @saldo_awal, @nominal, @saldo_akhir, @keterangan, @created_by, @created_at
+            );
+          `);
+
+        await new sql.Request(tx)
+          .input("kode_supplier", sql.VarChar(255), kodeSupplier)
+          .input("saldo_deposit", sql.Decimal(20, 2), saldoAkhir)
+          .input("updated_by", sql.VarChar(255), createdBy)
+          .query(`
+            UPDATE dbo.GWEN_m_supplier_deposit
+            SET saldo_deposit = @saldo_deposit,
+                updated_at = GETDATE(),
+                updated_by = @updated_by
+            WHERE kode_supplier = @kode_supplier;
+          `);
+      }
+
+      const kodeBayar = `BAY.${kode}.${Date.now().toString().slice(-4)}`;
+      await new sql.Request(tx)
+        .input("kode_pembayaran", sql.VarChar(100), kodeBayar)
+        .input("kode_t_tagihan", sql.VarChar(255), kode)
+        .input("tgl_bayar", sql.DateTime, tglBayar)
+        .input("nominal_bayar", sql.Decimal(20, 2), nominalBayar)
+        .input("sumber_pembayaran", sql.VarChar(50), sumberPembayaran)
+        .input("bank", sql.VarChar(255), bank)
+        .input("no_referensi", sql.VarChar(255), noReferensi)
+        .input("catatan", sql.NVarChar(500), catatan)
+        .input("created_by", sql.VarChar(255), createdBy)
+        .query(`
+          INSERT INTO dbo.GWEN_t_tagihan_pembayaran_history (
+            kode_pembayaran, kode_t_tagihan, tgl_bayar, nominal_bayar, sumber_pembayaran,
+            bank, no_referensi, catatan, created_by, created_at
+          ) VALUES (
+            @kode_pembayaran, @kode_t_tagihan, @tgl_bayar, @nominal_bayar, @sumber_pembayaran,
+            @bank, @no_referensi, @catatan, @created_by, GETDATE()
+          );
+        `);
+
+      const totalDibayarBaru = totalDibayarAwal + nominalBayar;
+      const isLunas = totalDibayarBaru >= totalTagihan ? 1 : 0;
+      await new sql.Request(tx)
+        .input("kode_t_tagihan", sql.VarChar(255), kode)
+        .input("total_dibayar", sql.Decimal(20, 2), totalDibayarBaru)
+        .input("is_lunas", sql.Int, isLunas)
+        .input("tgl_lunas", sql.DateTime, isLunas ? tglBayar : null)
+        .input("metode_bayar", sql.VarChar(255), sumberPembayaran)
+        .input("bank", sql.VarChar(255), bank)
+        .input("updated_by", sql.VarChar(255), createdBy)
+        .query(`
+          UPDATE dbo.GWEN_t_tagihan
+          SET total_dibayar = @total_dibayar,
+              is_lunas = @is_lunas,
+              tgl_lunas = CASE WHEN @is_lunas = 1 THEN @tgl_lunas ELSE tgl_lunas END,
+              metode_bayar = @metode_bayar,
+              bank = COALESCE(@bank, bank),
+              updated_by = @updated_by,
+              updated_at = GETDATE()
+          WHERE kode_t_tagihan = @kode_t_tagihan;
+        `);
+
+      if (tagihan.kode_t_pengadaan) {
+        const kodePbt = `PBT.${new Date().toISOString().slice(2, 10).replace(/-/g, "")}.${Date.now().toString().slice(-6)}`;
+        await new sql.Request(tx)
+          .input("kode_t_pembayaran_tagihan", sql.VarChar(255), kodePbt)
+          .input("kode_t_pengadaan", sql.VarChar(255), tagihan.kode_t_pengadaan)
+          .input("jenis_pembayaran", sql.NVarChar(50), sumberPembayaran === "DEPOSIT_RETUR" ? "DEPOSIT RETUR" : "PELUNASAN")
+          .input("jumlah_dibayar", sql.Decimal(20, 2), nominalBayar)
+          .input("keterangan", sql.NVarChar(255), catatan || `Pelunasan Tagihan ${kode}`)
+          .input("created_by", sql.VarChar(100), createdBy)
+          .query(`
+            INSERT INTO dbo.GWEN_t_pembayaran_tagihan (
+              kode_t_pembayaran_tagihan, kode_t_pengadaan, jenis_pembayaran, jumlah_dibayar,
+              keterangan, status, created_by, created_at
+            ) VALUES (
+              @kode_t_pembayaran_tagihan, @kode_t_pengadaan, @jenis_pembayaran, @jumlah_dibayar,
+              @keterangan, 1, @created_by, GETDATE()
+            );
+          `);
+      }
+
+      await tx.commit();
+      return reply.send({
+        message: "Pelunasan tagihan berhasil disimpan",
+        kode_t_tagihan: kode,
+        nominal_bayar: nominalBayar,
+        total_dibayar: totalDibayarBaru,
+        is_lunas: isLunas === 1,
+      });
+    } catch (err) {
+      try {
+        await tx.rollback();
+      } catch {}
+      if (String(err?.message || "").startsWith("VALIDATION:")) {
+        return reply.code(400).send({ message: String(err.message).replace("VALIDATION:", "") });
+      }
+      fastify.log.error({ err }, "Failed to process pelunasan tagihan");
+      return reply.code(500).send({ message: "Gagal memproses pelunasan tagihan" });
+    }
+  });
+
+  fastify.get("/:kode/pembayaran", async (request, reply) => {
+    const kode = String(request.params?.kode || "").trim();
+    if (!kode) return reply.code(400).send({ message: "Kode tagihan wajib diisi" });
+
+    try {
+      const res = await pool
+        .request()
+        .input("kode_t_tagihan", sql.VarChar(255), kode)
+        .query(`
+          SELECT
+            id_pembayaran,
+            kode_pembayaran,
+            kode_t_tagihan,
+            tgl_bayar,
+            nominal_bayar,
+            sumber_pembayaran,
+            bank,
+            no_referensi,
+            catatan,
+            created_by,
+            created_at
+          FROM dbo.GWEN_t_tagihan_pembayaran_history
+          WHERE kode_t_tagihan = @kode_t_tagihan
+          ORDER BY tgl_bayar DESC, id_pembayaran DESC;
+        `);
+      return reply.send(res.recordset || []);
+    } catch (err) {
+      fastify.log.error({ err }, "Failed to fetch payment history");
+      return reply.code(500).send({ message: "Gagal memuat riwayat pembayaran" });
+    }
+  });
 }

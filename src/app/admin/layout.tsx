@@ -160,6 +160,7 @@ const navGroups: NavGroup[] = [
       { label: "Listing Tagihan", href: "/admin/purchasing/tagihan", icon: ReceiptText },
       { label: "Kontrabon", href: "/admin/purchasing/kontrabon", icon: FileText },
       { label: "Retur ke Supplier", href: "/admin/purchasing/retur-supplier", icon: RotateCcw },
+      { label: "Deposit Retur Supplier", href: "/admin/purchasing/deposit-supplier", icon: BadgeDollarSign },
       { label: "Inquiry Purchasing", href: "/admin/purchasing/inquiry", icon: Search },
       { label: "Inquiry Tagihan Supplier", href: "/admin/purchasing/inquiry-tagihan", icon: FileCheck2 },
     ],

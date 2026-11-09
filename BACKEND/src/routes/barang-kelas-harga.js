@@ -424,6 +424,8 @@ export default async function barangKelasHargaRoutes(fastify) {
     const searchRaw = String(req.query?.search || "").trim();
     const statusFilter = String(req.query?.status || "").trim().toLowerCase();
     const merkFilter = String(req.query?.merk || "").trim();
+    const hargaBelowBuy = String(req.query?.harga_below_buy || "").trim();
+    const hetBelowOffline = String(req.query?.het_below_offline || "").trim();
     const pageNumber = Math.max(Number(req.query?.page || 1) || 1, 1);
     const pageSize = Math.min(Math.max(Number(req.query?.page_size || 50) || 50, 1), 200);
     const offset = (pageNumber - 1) * pageSize;
@@ -443,6 +445,28 @@ export default async function barangKelasHargaRoutes(fastify) {
       )`);
     }
     const channelWhereClause = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+
+    const outerFilters = ["rn = 1"];
+    if (hargaBelowBuy === "1" || hargaBelowBuy.toLowerCase() === "true") {
+      outerFilters.push(`(
+        ISNULL(harga_beli_sat_1, 0) > 0
+        AND (
+          (harga_1 > 0 AND harga_1 <= harga_beli_sat_1)
+          OR (harga_3 > 0 AND harga_3 <= harga_beli_sat_1)
+          OR (harga_6 > 0 AND harga_6 <= harga_beli_sat_1)
+          OR (harga_12 > 0 AND harga_12 <= harga_beli_sat_1)
+        )
+      )`);
+    }
+    if (hetBelowOffline === "1" || hetBelowOffline.toLowerCase() === "true") {
+      outerFilters.push(`(
+        ISNULL(het_sat_1, 0) > 0
+        AND harga_1 > 0
+        AND het_sat_1 < harga_1
+      )`);
+    }
+    const outerWhereClause = `WHERE ${outerFilters.join(" AND ")}`;
+
     try {
       const request = pool.request();
       if (channelCode) {
@@ -471,7 +495,7 @@ export default async function barangKelasHargaRoutes(fastify) {
           SELECT ${outerSelectColumns},
                  COUNT(1) OVER() AS total_count
           FROM ranked
-          WHERE rn = 1
+          ${outerWhereClause}
           ORDER BY berlaku_mulai DESC, updated_at DESC
           OFFSET @offset_rows ROWS FETCH NEXT @page_size ROWS ONLY;`
         );

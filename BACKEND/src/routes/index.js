@@ -35,6 +35,7 @@ import inquiryStokRoutes from "./inquiry-stok.js";
 import rekapanHarianRoutes from "./rekapan-harian.js";
 import customerRoutes from "./customers.js";
 import returSupplierRoutes from "./retur-supplier.js";
+import supplierDepositRoutes from "./supplier-deposit.js";
 
 export default async function routes(fastify) {
   fastify.register(healthRoutes);
@@ -75,4 +76,5 @@ export default async function routes(fastify) {
   fastify.register(rekapanHarianRoutes, { prefix: "/rekapan-harian" });
   fastify.register(customerRoutes, { prefix: "/customers" });
   fastify.register(returSupplierRoutes, { prefix: "/retur-supplier" });
+  fastify.register(supplierDepositRoutes, { prefix: "/supplier-deposit" });
 }

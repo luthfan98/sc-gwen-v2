@@ -224,6 +224,8 @@ export default function MasterHargaJualPage() {
       if (search.trim()) params.set("search", search.trim());
       if (statusFilter && statusFilter !== "semua") params.set("status", statusFilter);
       if (merkFilter && merkFilter !== "semua") params.set("merk", merkFilter);
+      if (showHargaBelowBuyOnly) params.set("harga_below_buy", "1");
+      if (showHetBelowOfflineOnly) params.set("het_below_offline", "1");
       params.set("page", String(page));
       params.set("page_size", String(pageSize));
       const url = params.toString() ? `${API_URL}?${params.toString()}` : API_URL;
@@ -248,7 +250,7 @@ export default function MasterHargaJualPage() {
     } finally {
       setLoading(false);
     }
-  }, [kelasFilter, merkFilter, page, pageSize, search, statusFilter]);
+  }, [kelasFilter, merkFilter, page, pageSize, search, showHargaBelowBuyOnly, showHetBelowOfflineOnly, statusFilter]);
 
   const getUsername = () => {
     const rawSession = typeof window !== "undefined" ? localStorage.getItem("kosmetik-admin-session") : null;
@@ -762,7 +764,7 @@ export default function MasterHargaJualPage() {
     const map = new Map<
       string,
       SelectedHargaJualRow & {
-        harga: Record<string, { id_kelas_harga: number; isActive: number; h1: number; h3: number; h6: number; h12: number }>;
+        harga: Record<string, any>;
       }
     >();
 
@@ -805,6 +807,15 @@ export default function MasterHargaJualPage() {
       }
       if (!entry.barcode_varian && it.barcode_varian) {
         entry.barcode_varian = it.barcode_varian;
+      }
+      if (!entry.harga_beli && it.harga_beli_sat_1) {
+        entry.harga_beli = it.harga_beli_sat_1;
+      }
+      if (!entry.het && it.het_sat_1) {
+        entry.het = it.het_sat_1;
+      }
+      if (!entry.hpp && it.hpp_avg_sat_1) {
+        entry.hpp = it.hpp_avg_sat_1;
       }
       entry.status_barang = entry.status_barang === 1 && it.status_barang === 1 ? 1 : it.status_barang ?? entry.status_barang;
       entry.status_varian = entry.status_varian === 1 && it.status_varian === 1 ? 1 : it.status_varian ?? entry.status_varian;
@@ -1708,14 +1719,16 @@ export default function MasterHargaJualPage() {
 
   const isHetBelowOffline = (row: {
     het?: number;
-    harga: Record<string, { id_kelas_harga: number; isActive: number; h1: number; h3: number; h6: number; h12: number }>;
+    harga?: Record<string, any>;
   }) => {
-    const offlineHarga1 = row.harga["OFFLINE"]?.h1 ?? null;
+    const offlineHarga1 = row.harga?.["OFFLINE"]?.h1 ?? null;
     return (
       row.het !== null &&
       row.het !== undefined &&
       offlineHarga1 !== null &&
       offlineHarga1 !== undefined &&
+      Number(row.het) > 0 &&
+      Number(offlineHarga1) > 0 &&
       Number(row.het) < Number(offlineHarga1)
     );
   };
@@ -1723,7 +1736,7 @@ export default function MasterHargaJualPage() {
   const isHargaJualBelowOrEqualBuy = useCallback((hargaJual: number | null | undefined, hargaBeli: number | null | undefined) => {
     const jual = Number(hargaJual ?? 0);
     const beli = Number(hargaBeli ?? 0);
-    return Number.isFinite(jual) && Number.isFinite(beli) && beli > 0 && hargaJual !== null && hargaJual !== undefined && jual <= beli;
+    return Number.isFinite(jual) && Number.isFinite(beli) && beli > 0 && jual > 0 && hargaJual !== null && hargaJual !== undefined && jual <= beli;
   }, []);
 
   const getHargaCellClass = (
