@@ -443,6 +443,15 @@ export default function ReturSupplierPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={exportToExcel}
+            disabled={exporting || filteredRows.length === 0}
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3.5 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 transition shadow-xs"
+          >
+            <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+            {exporting ? "Mengunduh..." : "Export Excel"}
+          </button>
           <Link
             href="/admin/purchasing/retur-supplier/new"
             target="_blank"
@@ -484,16 +493,25 @@ export default function ReturSupplierPage() {
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 p-4">
-          <div className="relative max-w-xs">
+        <div className="border-b border-slate-200 p-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="relative max-w-xs w-full">
             <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Cari kode / supplier"
+              placeholder="Cari kode / supplier / gudang"
               className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-cyan-500"
             />
           </div>
+          <button
+            type="button"
+            onClick={exportToExcel}
+            disabled={exporting || filteredRows.length === 0}
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3.5 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 transition shadow-xs"
+          >
+            <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+            {exporting ? "Mengunduh..." : "Export Excel"}
+          </button>
         </div>
 
         <div className="overflow-x-auto">
