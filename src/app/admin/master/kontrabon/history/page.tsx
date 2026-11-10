@@ -126,7 +126,7 @@ export default function HistoryKontrabonPage() {
   >([]);
   const [tglKontrabon, setTglKontrabon] = useState("");
   const [tglFaktur, setTglFaktur] = useState("");
-  const [tglPpj, setTglPpj] = useState("");
+  const [tglGwen, setTglGwen] = useState("");
   const [rencanaTfDari, setRencanaTfDari] = useState("");
   const [rencanaTfSampai, setRencanaTfSampai] = useState("");
   const [noFaktur, setNoFaktur] = useState("");
@@ -1069,7 +1069,7 @@ export default function HistoryKontrabonPage() {
                             setNoFaktur(row.no_faktur || "");
                             setTglKontrabon(toDateInput(row.tgl_kontrabon));
                             setTglFaktur(toDateInput(row.tgl_faktur));
-                            setTglPpj(toDateInput(row.tgl_ppj));
+                            setTglGwen(toDateInput(row.tgl_gwen || row.tgl_ppj));
                             setRencanaTfDari(toDateInput(row.rencana_tf_dari));
                             setRencanaTfSampai(toDateInput(row.rencana_tf_sampai));
                             setNominalFakturManual(true);
@@ -1509,8 +1509,8 @@ export default function HistoryKontrabonPage() {
                   <input
                     type="date"
                     className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
-                    value={tglPpj}
-                    onChange={(e) => setTglPpj(e.target.value)}
+                    value={tglGwen}
+                    onChange={(e) => setTglGwen(e.target.value)}
                   />
                 </div>
               </div>
@@ -1764,7 +1764,7 @@ export default function HistoryKontrabonPage() {
                   if (kodePengadaan.length === 0) return showValidationAlert("Nomor pengadaan wajib dipilih.");
                   if (!tglKontrabon) return showValidationAlert("Tanggal kontrabon wajib diisi.");
                   if (!tglFaktur) return showValidationAlert("Tanggal faktur wajib diisi.");
-                  if (!tglPpj) return showValidationAlert("Tanggal Gwen wajib diisi.");
+                  if (!tglGwen) return showValidationAlert("Tanggal Gwen wajib diisi.");
                   if (!rencanaTfDari) return showValidationAlert("Rencana transfer wajib diisi.");
                   if (!rencanaTfSampai) return showValidationAlert("Rencana transfer sampai wajib diisi.");
                   if (!noFaktur) return showValidationAlert("Nomor faktur wajib diisi.");
@@ -1803,7 +1803,8 @@ export default function HistoryKontrabonPage() {
                                 no_faktur: noFaktur,
                                 tgl_kontrabon: tglKontrabon,
                                 tgl_faktur: tglFaktur,
-                                tgl_ppj: tglPpj,
+                                tgl_gwen: tglGwen,
+                                tgl_ppj: tglGwen,
                                 rencana_tf_dari: rencanaTfDari,
                                 rencana_tf_sampai: rencanaTfSampai,
                                 nominal_faktur: nominalFakturValue,
@@ -1832,7 +1833,8 @@ export default function HistoryKontrabonPage() {
                                 cabang: selectedRekening?.cabang || "",
                                 tgl_kontrabon: tglKontrabon,
                                 tgl_faktur: tglFaktur,
-                                tgl_ppj: tglPpj,
+                                tgl_gwen: tglGwen,
+                                tgl_ppj: tglGwen,
                                 rencana_tf_dari: rencanaTfDari,
                                 rencana_tf_sampai: rencanaTfSampai,
                                 nominal_faktur: nominalFakturValue,

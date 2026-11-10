@@ -374,6 +374,7 @@ export default async function kontrabonRoutes(fastify) {
           k.tgl_kontrabon,
           k.tgl_faktur,
           k.tgl_ppj,
+          k.tgl_ppj AS tgl_gwen,
           k.rencana_tf_dari,
           k.rencana_tf_sampai,
           k.nominal_faktur,
@@ -1747,7 +1748,7 @@ export default async function kontrabonRoutes(fastify) {
             `Nomor Rekening: *${supplierRow?.no_rekening || "-"}*`,
             `Cabang: *${supplierRow?.cabang || "-"}*`,
             "--------------------------------------------",
-            "*#NB :* Mohon untuk mengkonfirmasi penerimaan pembayaran ini. Komplain paling lambat 3 bulan setelah pembayaran diterima. [untuk detail rincian bisa unduh di aplikasi PPJ]",
+            "*#NB :* Mohon untuk mengkonfirmasi penerimaan pembayaran ini. Komplain paling lambat 3 bulan setelah pembayaran diterima. [untuk detail rincian bisa unduh di aplikasi GWEN]",
             "Terima kasih atas perhatian dan kerjasamanya.",
             "",
             "Hormat kami,",
@@ -2212,7 +2213,7 @@ export default async function kontrabonRoutes(fastify) {
         req.input("cabang", sql.VarChar(255), body.cabang || null);
         req.input("tgl_kontrabon", sql.DateTime, body.tgl_kontrabon ? new Date(body.tgl_kontrabon) : null);
         req.input("tgl_faktur", sql.DateTime, body.tgl_faktur ? new Date(body.tgl_faktur) : null);
-        req.input("tgl_ppj", sql.DateTime, body.tgl_ppj ? new Date(body.tgl_ppj) : null);
+        req.input("tgl_ppj", sql.DateTime, (body.tgl_gwen || body.tgl_ppj) ? new Date(body.tgl_gwen || body.tgl_ppj) : null);
         req.input("rencana_tf_dari", sql.DateTime, body.rencana_tf_dari ? new Date(body.rencana_tf_dari) : null);
         req.input("rencana_tf_sampai", sql.DateTime, body.rencana_tf_sampai ? new Date(body.rencana_tf_sampai) : null);
         req.input("nominal_faktur", sql.Decimal(20, 2), normalizedAmounts.nominalFaktur || null);
@@ -2373,7 +2374,7 @@ export default async function kontrabonRoutes(fastify) {
       pengadaanList.length === 0 ||
       !body.tgl_kontrabon ||
       !body.tgl_faktur ||
-      !body.tgl_ppj ||
+      !(body.tgl_gwen || body.tgl_ppj) ||
       !body.rencana_tf_dari ||
       !body.rencana_tf_sampai ||
       !body.nominal_faktur ||
@@ -2588,7 +2589,7 @@ export default async function kontrabonRoutes(fastify) {
         .input("cabang", sql.VarChar(255), body.cabang || null)
         .input("tgl_kontrabon", sql.DateTime, new Date(body.tgl_kontrabon))
         .input("tgl_faktur", sql.DateTime, new Date(body.tgl_faktur))
-        .input("tgl_ppj", sql.DateTime, new Date(body.tgl_ppj))
+        .input("tgl_ppj", sql.DateTime, new Date(body.tgl_gwen || body.tgl_ppj))
         .input("rencana_tf_dari", sql.DateTime, new Date(body.rencana_tf_dari))
         .input("rencana_tf_sampai", sql.DateTime, new Date(body.rencana_tf_sampai))
         .input("nominal_faktur", sql.Decimal(20, 2), normalizedAmounts.nominalFaktur)
