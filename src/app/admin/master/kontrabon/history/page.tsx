@@ -49,6 +49,9 @@ type PengadaanPreviewSlot = {
   sisa: number;
   persen: number | null;
   umurHari: number | null;
+  hargaBeli?: number | null;
+  invaluePO?: number | null;
+  invalueSisa?: number | null;
   isCurrent: boolean;
 } | null;
 
@@ -58,6 +61,15 @@ type PengadaanPreviewRow = {
   namaSupplier: string | null;
   stokGudang: number;
   stokToko: number;
+  invalueGudang?: number | null;
+  invalueToko?: number | null;
+  invalueTotalStok?: number | null;
+  qtyPengadaan?: number | null;
+  satuanPengadaan?: string | null;
+  hargaBeli?: number | null;
+  subtotalPengadaan?: number | null;
+  invaluePO?: number | null;
+  invalueSisa?: number | null;
   slots: PengadaanPreviewSlot[];
 };
 
@@ -68,6 +80,9 @@ type PengadaanPreviewPayload = {
     total_akhir?: number | null;
     no_faktur_supplier?: string | null;
     tgl?: string | null;
+    total_invalue_po?: number | null;
+    total_invalue_sisa?: number | null;
+    persen_invalue_sisa?: number | null;
   } | null;
   limit?: number;
   slot_order?: string[];
@@ -1921,6 +1936,11 @@ export default function HistoryKontrabonPage() {
                             <div className="font-semibold text-slate-900">
                               Total: {formatCurrency(preview?.header?.total_akhir)}
                             </div>
+                            {preview?.header?.total_invalue_sisa !== undefined && (
+                              <div className="mt-0.5 text-xs font-semibold text-amber-800">
+                                Invalue Sisa: {formatCurrency(preview.header.total_invalue_sisa)} ({formatNumber(preview.header.persen_invalue_sisa)}%)
+                              </div>
+                            )}
                           </div>
                         </div>
                         {pengadaanPreviewLoading[previewCode] ? (
@@ -1985,7 +2005,12 @@ export default function HistoryKontrabonPage() {
                                             {slot?.persen !== null && slot?.persen !== undefined ? `${formatNumber(slot.persen)}%` : "-"}
                                           </td>,
                                           <td key={`${previewRow.kodeBarangVariant}-${previewCode}-${slotName}-sisa`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "middle")}`}>
-                                            {slot ? formatNumber(slot.sisa) : "-"}
+                                            <div className="font-medium">{slot ? formatNumber(slot.sisa) : "-"}</div>
+                                            {slot && Number(slot.invalueSisa ?? 0) > 0 ? (
+                                              <div className="text-[9px] font-semibold text-amber-900 leading-tight">
+                                                {formatCurrency(slot.invalueSisa)}
+                                              </div>
+                                            ) : null}
                                           </td>,
                                           <td key={`${previewRow.kodeBarangVariant}-${previewCode}-${slotName}-umur`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "last")}`}>
                                             {slot?.umurHari !== null && slot?.umurHari !== undefined ? `${slot.umurHari} hari` : "-"}

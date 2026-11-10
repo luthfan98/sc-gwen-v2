@@ -10,6 +10,9 @@ type PemantauanHeader = {
   id: number;
   tgl_rekap: string | null;
   grand_total: number | null;
+  grand_total_invalue_po?: number | null;
+  grand_total_invalue_sisa?: number | null;
+  grand_persen_invalue_sisa?: number | null;
 };
 
 type PemantauanSlot = {
@@ -21,6 +24,9 @@ type PemantauanSlot = {
   sisa: number;
   persen: number | null;
   umurHari: number | null;
+  hargaBeli?: number | null;
+  invaluePO?: number | null;
+  invalueSisa?: number | null;
   isCurrent: boolean;
 };
 
@@ -31,8 +37,15 @@ type PemantauanRow = {
   namaSupplier: string | null;
   stokGudang: number;
   stokToko: number;
+  invalueGudang?: number | null;
+  invalueToko?: number | null;
+  invalueTotalStok?: number | null;
   qtyPengadaan: number;
   satuanPengadaan: string | null;
+  hargaBeli?: number | null;
+  subtotalPengadaan?: number | null;
+  invaluePO?: number | null;
+  invalueSisa?: number | null;
   slots: PemantauanSlot[];
 };
 
@@ -41,6 +54,9 @@ type PemantauanCard = {
   nomorKontrabon: string;
   namaSupplier: string | null;
   total: number;
+  invaluePO?: number | null;
+  invalueSisa?: number | null;
+  persenInvalueSisa?: number | null;
   noFaktur: string | null;
   tglFaktur: string | null;
   tglKontrabon: string | null;
@@ -183,7 +199,10 @@ export default function Pemantauan30Page() {
         ).length,
       0
     );
-    return { totalRows, alertRows };
+    const totalInvalueSisa = payload.cards.reduce((acc, card) => acc + Number(card.invalueSisa ?? 0), 0);
+    const totalInvaluePO = payload.cards.reduce((acc, card) => acc + Number(card.invaluePO ?? 0), 0);
+    const persenInvalueSisa = totalInvaluePO > 0 ? Math.round((totalInvalueSisa / totalInvaluePO) * 10000) / 100 : 0;
+    return { totalRows, alertRows, totalInvalueSisa, totalInvaluePO, persenInvalueSisa };
   }, [payload.cards]);
 
   const slotOrder = ["K5", "K4", "K3", "K2", "K1"];
@@ -294,7 +313,7 @@ export default function Pemantauan30Page() {
           </div>
         </div>
 
-        <div className="mt-6 grid gap-4 md:grid-cols-4 print:mt-3 print:gap-2">
+        <div className="mt-6 grid gap-4 md:grid-cols-5 print:mt-3 print:gap-2">
           <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Tanggal Rekap</div>
             <div className="mt-2 text-lg font-bold text-slate-900">{formatDate(payload.header?.tgl_rekap)}</div>
@@ -302,6 +321,15 @@ export default function Pemantauan30Page() {
           <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Grand Total</div>
             <div className="mt-2 text-lg font-bold text-slate-900">{formatCurrency(payload.header?.grand_total)}</div>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm bg-gradient-to-br from-white to-amber-50/40">
+            <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">Total Invalue Sisa</div>
+            <div className="mt-2 text-lg font-bold text-amber-900">
+              {formatCurrency(payload.header?.grand_total_invalue_sisa ?? summary.totalInvalueSisa)}
+            </div>
+            <div className="mt-1 text-[11px] font-medium text-slate-500">
+              {formatNumber(payload.header?.grand_persen_invalue_sisa ?? summary.persenInvalueSisa)}% dari nilai pengadaan
+            </div>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Nota</div>
@@ -382,7 +410,14 @@ export default function Pemantauan30Page() {
                   <div className="text-right text-sm text-slate-700">
                     <div>TF: {formatDate(card.rencanaTfDari)} - {formatDate(card.rencanaTfSampai)}</div>
                     <div>No Faktur: {card.noFaktur || "-"}</div>
-                    <div className="font-semibold text-slate-900">Total: {formatCurrency(card.total)}</div>
+                    <div className="mt-1 flex flex-wrap items-center justify-end gap-2 font-semibold">
+                      <span className="text-slate-900">Total: {formatCurrency(card.total)}</span>
+                      {card.invalueSisa !== undefined && (
+                        <span className="inline-flex items-center gap-1 rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 border border-amber-300">
+                          Invalue Sisa: {formatCurrency(card.invalueSisa)} ({formatNumber(card.persenInvalueSisa)}%)
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -428,7 +463,14 @@ export default function Pemantauan30Page() {
                         <tr key={`${card.kodeTPengadaan}-${row.kodeBarangVariant}`} className="align-top">
                           <td className="border border-slate-300 px-3 py-2 text-slate-900">
                             <div className="break-words font-semibold leading-snug">{row.namaBarang}</div>
-                            <div className="mt-1 break-all text-[11px] text-slate-500">{row.kodeBarangVariant}</div>
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
+                              <span>{row.kodeBarangVariant}</span>
+                              {row.hargaBeli ? (
+                                <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-700 border border-slate-200">
+                                  @ {formatCurrency(row.hargaBeli)}
+                                </span>
+                              ) : null}
+                            </div>
                           </td>
                           <td className="border border-slate-300 px-3 py-2 break-words leading-snug">{row.namaSupplier || "-"}</td>
                           {slotOrder.flatMap((slotName) => {
@@ -453,9 +495,14 @@ export default function Pemantauan30Page() {
                                 key={`${row.kodeBarangVariant}-${slotName}-po`}
                                 className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${currentSlotBorderClass(slot, "middle")}`}
                               >
-                                <span className="break-words">
+                                <span className="break-words font-semibold">
                                   {slot ? formatNumber(slot.qty) : "-"}
                                 </span>
+                                {Number(slot?.invaluePO ?? 0) > 0 ? (
+                                  <div className="text-[10px] text-slate-600 font-normal leading-tight">
+                                    {formatCurrency(slot?.invaluePO)}
+                                  </div>
+                                ) : null}
                               </td>,
                               <td
                                 key={`${row.kodeBarangVariant}-${slotName}-pct`}
@@ -467,7 +514,16 @@ export default function Pemantauan30Page() {
                                 key={`${row.kodeBarangVariant}-${slotName}-sisa`}
                                 className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${currentSlotBorderClass(slot, "middle")}`}
                               >
-                                {slot ? formatNumber(slot.sisa) : "-"}
+                                <div className="font-semibold">
+                                  {slot ? formatNumber(slot.sisa) : "-"}
+                                </div>
+                                {Number(slot?.invalueSisa ?? 0) > 0 ? (
+                                  <div className="text-[10px] font-semibold text-amber-900 leading-tight">
+                                    {formatCurrency(slot?.invalueSisa)}
+                                  </div>
+                                ) : (slot && slot.sisa === 0 ? (
+                                  <div className="text-[10px] text-slate-400 font-normal leading-tight">Rp 0</div>
+                                ) : null)}
                               </td>,
                               <td
                                 key={`${row.kodeBarangVariant}-${slotName}-umur`}
@@ -477,11 +533,21 @@ export default function Pemantauan30Page() {
                               </td>,
                             ];
                           })}
-                          <td className="border border-slate-300 px-3 py-2 text-center font-semibold text-slate-900">
-                            {formatNumber(row.stokGudang)}
+                          <td className="border border-slate-300 px-3 py-2 text-center text-slate-900">
+                            <div className="font-semibold">{formatNumber(row.stokGudang)}</div>
+                            {Number(row.invalueGudang ?? 0) > 0 ? (
+                              <div className="text-[10px] text-slate-500 font-normal leading-tight">
+                                {formatCurrency(row.invalueGudang)}
+                              </div>
+                            ) : null}
                           </td>
-                          <td className="border border-slate-300 px-3 py-2 text-center font-semibold text-slate-900">
-                            {formatNumber(row.stokToko)}
+                          <td className="border border-slate-300 px-3 py-2 text-center text-slate-900">
+                            <div className="font-semibold">{formatNumber(row.stokToko)}</div>
+                            {Number(row.invalueToko ?? 0) > 0 ? (
+                              <div className="text-[10px] text-slate-500 font-normal leading-tight">
+                                {formatCurrency(row.invalueToko)}
+                              </div>
+                            ) : null}
                           </td>
                         </tr>
                       ))}

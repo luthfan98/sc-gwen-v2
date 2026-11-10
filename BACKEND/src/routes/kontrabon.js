@@ -950,6 +950,8 @@ export default async function kontrabonRoutes(fastify) {
           COALESCE(v.nama_varian, dp.nama_varian, dp.nama_barang, b.nama) AS nama_barang,
           dp.qty,
           dp.satuan,
+          dp.harga_beli,
+          dp.subtotal,
           b.satuan_1,
           b.satuan_2,
           b.rasio_1_ke_2
@@ -1068,6 +1070,8 @@ export default async function kontrabonRoutes(fastify) {
               END AS status_bayar,
               dp.qty,
               dp.satuan,
+              dp.harga_beli,
+              dp.subtotal,
               b.satuan_1,
               b.satuan_2,
               b.rasio_1_ke_2,
@@ -1094,6 +1098,8 @@ export default async function kontrabonRoutes(fastify) {
             status_bayar,
             qty,
             satuan,
+            harga_beli,
+            subtotal,
             satuan_1,
             satuan_2,
             rasio_1_ke_2,
@@ -1124,6 +1130,8 @@ export default async function kontrabonRoutes(fastify) {
           statusBayar: String(row.status_bayar || "Belum Lunas"),
           qty: Number(row.qty ?? 0),
           satuan: row.satuan,
+          hargaBeli: Number(row.harga_beli ?? 0),
+          subtotal: Number(row.subtotal ?? 0),
           qtyBase: toBaseQty({
             qty: row.qty,
             unit: row.satuan,
@@ -1149,6 +1157,12 @@ export default async function kontrabonRoutes(fastify) {
           const ageDays = row.tgl
             ? Math.floor((today.getTime() - new Date(row.tgl).getTime()) / (1000 * 60 * 60 * 24))
             : null;
+          const rowUnitPrice = qtyDisplay > 0 && Number(row.subtotal ?? 0) > 0
+            ? (Number(row.subtotal) / qtyDisplay)
+            : Number(row.hargaBeli ?? 0);
+          const invaluePO = Number(row.subtotal ?? 0) > 0 ? Number(row.subtotal) : Math.round(qtyDisplay * rowUnitPrice);
+          const invalueSisa = Math.round(sisaDisplay * rowUnitPrice);
+
           return {
             slot: `K${index + 1}`,
             kodeTPengadaan: row.kodeTPengadaan,
@@ -1158,9 +1172,23 @@ export default async function kontrabonRoutes(fastify) {
             sisa: sisaDisplay,
             persen,
             umurHari: ageDays,
+            hargaBeli: rowUnitPrice,
+            invaluePO,
+            invalueSisa,
             isCurrent: row.kodeTPengadaan === kodePengadaan,
           };
         });
+
+        const detailQty = Number(detail.qty ?? 0);
+        const itemUnitPrice = detailQty > 0 && Number(detail.subtotal ?? 0) > 0
+          ? (Number(detail.subtotal) / detailQty)
+          : Number(detail.harga_beli ?? 0);
+        const invalueGudang = Math.round(Number(stockEntry.gudang ?? 0) * itemUnitPrice);
+        const invalueToko = Math.round(Number(stockEntry.toko ?? 0) * itemUnitPrice);
+        const invalueTotalStok = invalueGudang + invalueToko;
+        const currentSlot = slots.find((s) => s.isCurrent) || null;
+        const invalueSisa = currentSlot ? currentSlot.invalueSisa : 0;
+        const invaluePO = currentSlot ? currentSlot.invaluePO : Math.round(detailQty * itemUnitPrice);
 
         const rowPayload = {
           kodeBarangVariant: variantCode,
@@ -1169,8 +1197,15 @@ export default async function kontrabonRoutes(fastify) {
           namaSupplier: detail.nama_supplier,
           stokGudang: Number(stockEntry.gudang ?? 0),
           stokToko: Number(stockEntry.toko ?? 0),
-          qtyPengadaan: Number(detail.qty ?? 0),
+          invalueGudang,
+          invalueToko,
+          invalueTotalStok,
+          qtyPengadaan: detailQty,
           satuanPengadaan: detail.satuan,
+          hargaBeli: itemUnitPrice,
+          subtotalPengadaan: Number(detail.subtotal ?? (detailQty * itemUnitPrice)),
+          invaluePO,
+          invalueSisa,
           slots,
         };
 
@@ -1178,15 +1213,49 @@ export default async function kontrabonRoutes(fastify) {
         detailsByPengadaan.get(kodePengadaan).push(rowPayload);
       });
 
-      const cards = cardSources.map((card) => ({
-        ...card,
-        umurNotaHari: card.tglFaktur
-          ? Math.floor((today.getTime() - new Date(card.tglFaktur).getTime()) / (1000 * 60 * 60 * 24))
-          : null,
-        data: detailsByPengadaan.get(card.kodeTPengadaan) || [],
-      }));
+      const cards = cardSources.map((card) => {
+        const cardData = detailsByPengadaan.get(card.kodeTPengadaan) || [];
+        let cardInvaluePO = 0;
+        let cardInvalueSisa = 0;
+        cardData.forEach((row) => {
+          cardInvaluePO += Number(row.invaluePO ?? 0);
+          cardInvalueSisa += Number(row.invalueSisa ?? 0);
+        });
+        const persenInvalueSisa = cardInvaluePO > 0
+          ? Math.round((cardInvalueSisa / cardInvaluePO) * 10000) / 100
+          : 0;
 
-      return reply.send({ header, cards });
+        return {
+          ...card,
+          umurNotaHari: card.tglFaktur
+            ? Math.floor((today.getTime() - new Date(card.tglFaktur).getTime()) / (1000 * 60 * 60 * 24))
+            : null,
+          invaluePO: cardInvaluePO,
+          invalueSisa: cardInvalueSisa,
+          persenInvalueSisa,
+          data: cardData,
+        };
+      });
+
+      let grandTotalInvaluePO = 0;
+      let grandTotalInvalueSisa = 0;
+      cards.forEach((c) => {
+        grandTotalInvaluePO += c.invaluePO;
+        grandTotalInvalueSisa += c.invalueSisa;
+      });
+      const grandPersenInvalueSisa = grandTotalInvaluePO > 0
+        ? Math.round((grandTotalInvalueSisa / grandTotalInvaluePO) * 10000) / 100
+        : 0;
+
+      return reply.send({
+        header: {
+          ...header,
+          grand_total_invalue_po: grandTotalInvaluePO,
+          grand_total_invalue_sisa: grandTotalInvalueSisa,
+          grand_persen_invalue_sisa: grandPersenInvalueSisa,
+        },
+        cards,
+      });
     } catch (err) {
       fastify.log.error({ err }, "Failed fetch pemantauan 30 kontrabon");
       return reply.code(500).send({ message: "Gagal memuat pemantauan 30 kontrabon" });
@@ -1213,7 +1282,9 @@ export default async function kontrabonRoutes(fastify) {
           dp.kode_barang_variant,
           dp.nama_barang,
           dp.qty,
-          dp.satuan
+          dp.satuan,
+          dp.harga_beli,
+          dp.subtotal
         FROM dbo.GWEN_t_pengadaan tp
         INNER JOIN dbo.GWEN_d_pengadaan dp
           ON dp.kode_t_pengadaan COLLATE DATABASE_DEFAULT = tp.kode_t_pengadaan COLLATE DATABASE_DEFAULT
@@ -1328,6 +1399,8 @@ export default async function kontrabonRoutes(fastify) {
               END AS status_bayar,
               dp.qty,
               dp.satuan,
+              dp.harga_beli,
+              dp.subtotal,
               b.satuan_1,
               b.satuan_2,
               b.rasio_1_ke_2,
@@ -1354,6 +1427,8 @@ export default async function kontrabonRoutes(fastify) {
             status_bayar,
             qty,
             satuan,
+            harga_beli,
+            subtotal,
             satuan_1,
             satuan_2,
             rasio_1_ke_2,
@@ -1381,13 +1456,15 @@ export default async function kontrabonRoutes(fastify) {
           kodeTPengadaan: String(row.kode_t_pengadaan || "").trim(),
           statusBayar: String(row.status_bayar || "Belum Lunas"),
           qty: Number(row.qty ?? 0),
+          satuan: row.satuan,
+          hargaBeli: Number(row.harga_beli ?? 0),
+          subtotal: Number(row.subtotal ?? 0),
           qtyBase: toBaseQty({
             qty: row.qty,
             unit: row.satuan,
             satuan2: row.satuan_2,
             ratio12: row.rasio_1_ke_2,
           }),
-          satuan: row.satuan,
           satuan2: row.satuan_2,
           ratio12: Number(row.rasio_1_ke_2 ?? 0),
           tgl: row.tgl,
@@ -1404,6 +1481,12 @@ export default async function kontrabonRoutes(fastify) {
             satuan2: row.satuan2,
             ratio12: row.ratio12,
           });
+          const rowUnitPrice = Number(row.qty ?? 0) > 0 && Number(row.subtotal ?? 0) > 0
+            ? (Number(row.subtotal) / Number(row.qty))
+            : Number(row.hargaBeli ?? 0);
+          const invaluePO = Number(row.subtotal ?? 0) > 0 ? Number(row.subtotal) : Math.round(Number(row.qty ?? 0) * rowUnitPrice);
+          const invalueSisa = Math.round(sisaDisplay * rowUnitPrice);
+
           slotMap.set(row.slot, {
             slot: row.slot,
             kodeTPengadaan: row.kodeTPengadaan,
@@ -1414,9 +1497,23 @@ export default async function kontrabonRoutes(fastify) {
             umurHari: row.tgl
               ? Math.floor((today.getTime() - new Date(row.tgl).getTime()) / (1000 * 60 * 60 * 24))
               : null,
+            hargaBeli: rowUnitPrice,
+            invaluePO,
+            invalueSisa,
             isCurrent: row.kodeTPengadaan === kodePengadaan,
           });
         });
+
+        const detailQty = Number(detail.qty ?? 0);
+        const itemUnitPrice = detailQty > 0 && Number(detail.subtotal ?? 0) > 0
+          ? (Number(detail.subtotal) / detailQty)
+          : Number(detail.harga_beli ?? 0);
+        const invalueGudang = Math.round(Number(stockEntry.gudang ?? 0) * itemUnitPrice);
+        const invalueToko = Math.round(Number(stockEntry.toko ?? 0) * itemUnitPrice);
+        const invalueTotalStok = invalueGudang + invalueToko;
+        const currentSlot = slotOrder.map((s) => slotMap.get(s)).find((s) => s?.isCurrent) || null;
+        const invalueSisa = currentSlot ? currentSlot.invalueSisa : 0;
+        const invaluePO = currentSlot ? currentSlot.invaluePO : Math.round(detailQty * itemUnitPrice);
 
         return {
           kodeBarangVariant: variantCode,
@@ -1424,9 +1521,28 @@ export default async function kontrabonRoutes(fastify) {
           namaSupplier: detail.nama_supplier,
           stokGudang: Number(stockEntry.gudang ?? 0),
           stokToko: Number(stockEntry.toko ?? 0),
+          invalueGudang,
+          invalueToko,
+          invalueTotalStok,
+          qtyPengadaan: detailQty,
+          satuanPengadaan: detail.satuan,
+          hargaBeli: itemUnitPrice,
+          subtotalPengadaan: Number(detail.subtotal ?? (detailQty * itemUnitPrice)),
+          invaluePO,
+          invalueSisa,
           slots: slotOrder.map((slot) => slotMap.get(slot) || null),
         };
       });
+
+      let totalInvaluePO = 0;
+      let totalInvalueSisa = 0;
+      rows.forEach((r) => {
+        totalInvaluePO += Number(r.invaluePO ?? 0);
+        totalInvalueSisa += Number(r.invalueSisa ?? 0);
+      });
+      const persenInvalueSisa = totalInvaluePO > 0
+        ? Math.round((totalInvalueSisa / totalInvaluePO) * 10000) / 100
+        : 0;
 
       const header = pengadaanDetails[0];
       return reply.send({
@@ -1436,6 +1552,9 @@ export default async function kontrabonRoutes(fastify) {
           total_akhir: Number(header?.total_akhir ?? 0),
           no_faktur_supplier: header?.no_faktur_supplier || null,
           tgl: header?.tgl || null,
+          total_invalue_po: totalInvaluePO,
+          total_invalue_sisa: totalInvalueSisa,
+          persen_invalue_sisa: persenInvalueSisa,
         },
         limit,
         slot_order: slotOrder,
