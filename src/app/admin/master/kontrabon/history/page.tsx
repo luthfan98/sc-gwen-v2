@@ -1505,7 +1505,7 @@ export default function HistoryKontrabonPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm text-gray-600">Tanggal PPJ</label>
+                  <label className="text-sm text-gray-600">Tanggal Gwen</label>
                   <input
                     type="date"
                     className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
@@ -1764,7 +1764,7 @@ export default function HistoryKontrabonPage() {
                   if (kodePengadaan.length === 0) return showValidationAlert("Nomor pengadaan wajib dipilih.");
                   if (!tglKontrabon) return showValidationAlert("Tanggal kontrabon wajib diisi.");
                   if (!tglFaktur) return showValidationAlert("Tanggal faktur wajib diisi.");
-                  if (!tglPpj) return showValidationAlert("Tanggal PPJ wajib diisi.");
+                  if (!tglPpj) return showValidationAlert("Tanggal Gwen wajib diisi.");
                   if (!rencanaTfDari) return showValidationAlert("Rencana transfer wajib diisi.");
                   if (!rencanaTfSampai) return showValidationAlert("Rencana transfer sampai wajib diisi.");
                   if (!noFaktur) return showValidationAlert("Nomor faktur wajib diisi.");
