@@ -1,3 +1,5 @@
+import { syncKontrabonDepositMutasi } from "./kontrabon-deposit-helper.js";
+
 export default async function kontrabonRoutes(fastify) {
   const { sql, pool } = fastify.mssql;
 
@@ -2427,6 +2429,23 @@ export default async function kontrabonRoutes(fastify) {
             AND ISNULL(stspaid, '') <> 'Paid';
         `);
 
+        const currentSupplierRes = await new sql.Request(tx)
+          .input("no_kontrabon", sql.VarChar(255), String(no))
+          .query(`
+            SELECT TOP 1 kode_supplier
+            FROM dbo.GWEN_t_kontrabon
+            WHERE no_kontrabon = @no_kontrabon;
+          `);
+        const activeKodeSupplier = currentSupplierRes.recordset?.[0]?.kode_supplier || body.kode_supplier;
+        await syncKontrabonDepositMutasi(tx, {
+          noKontrabon: String(no),
+          kodeSupplier: activeKodeSupplier,
+          namaSupplier: body.nama_supplier,
+          tglKontrabon: body.tgl_kontrabon,
+          biayaLain: body.biaya_lain,
+          createdBy: updatedBy,
+        });
+
         await tx.commit();
         return reply.send({ message: "Kontrabon berhasil diupdate" });
     } catch (err) {
@@ -2737,6 +2756,15 @@ export default async function kontrabonRoutes(fastify) {
           );
         `
         );
+
+      await syncKontrabonDepositMutasi(tx, {
+        noKontrabon: nomorKontrabon,
+        kodeSupplier: kodeSupplier,
+        namaSupplier: body.nama_supplier,
+        tglKontrabon: body.tgl_kontrabon,
+        biayaLain: biayaLain,
+        createdBy: createdBy,
+      });
 
       await tx.commit();
       return reply.send({ message: "Kontrabon tersimpan", no_kontrabon: nomorKontrabon, tagihan: tagihanCodes });

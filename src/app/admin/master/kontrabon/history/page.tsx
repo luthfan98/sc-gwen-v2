@@ -1811,57 +1811,60 @@ export default function HistoryKontrabonPage() {
                                   Pilih Dokumen Retur:
                                 </label>
                                 <div className="flex-1">
-                                  <select
-                                    value={row.no_retur || ""}
-                                    onChange={(e) => {
-                                      const selectedNoRetur = e.target.value;
-                                      const returItem = availableReturs.find((r) => r.kode_t_retur_supplier === selectedNoRetur);
-                                      setBiayaLainRows((prev) =>
-                                        prev.map((item) => {
-                                          if (item.id !== row.id) return item;
-                                          if (!selectedNoRetur || !returItem) {
-                                            return { ...item, no_retur: "" };
-                                          }
-                                          return {
-                                            ...item,
-                                            no_retur: selectedNoRetur,
-                                            nominal: String(returItem.total_nominal),
-                                            tanda: "-",
-                                            keterangan: `Klaim Retur ${selectedNoRetur}${returItem.catatan ? ` (${returItem.catatan})` : ""}`,
-                                          };
-                                        })
+                                  {(() => {
+                                    const selectableReturs = availableReturs.filter((r) => {
+                                      if (r.is_used && r.kode_t_retur_supplier !== row.no_retur) return false;
+                                      const isChosenInOtherRow = biayaLainRows.some(
+                                        (other) => other.id !== row.id && other.no_retur === r.kode_t_retur_supplier
                                       );
-                                    }}
-                                    disabled={!supplierValue?.value || availableRetursLoading}
-                                    className="w-full rounded-lg border border-emerald-300 bg-white px-2.5 py-1.5 text-xs text-gray-800 shadow-sm focus:border-emerald-500 focus:outline-none"
-                                  >
-                                    <option value="">
-                                      {availableRetursLoading
-                                        ? "-- Memuat dokumen retur... --"
-                                        : availableReturs.filter((r) => !r.is_used || r.kode_t_retur_supplier === row.no_retur).length === 0
-                                          ? "-- Tidak ada dokumen retur belum digunakan --"
-                                          : "-- Pilih Dokumen Retur (Nominal & Keterangan Otomatis) --"}
-                                    </option>
-                                    {availableReturs
-                                      .filter((r) => !r.is_used || r.kode_t_retur_supplier === row.no_retur)
-                                      .map((r) => {
-                                        const isChosenInOtherRow = biayaLainRows.some(
-                                          (other) => other.id !== row.id && other.no_retur === r.kode_t_retur_supplier
-                                        );
-                                        return (
+                                      return !isChosenInOtherRow;
+                                    });
+
+                                    return (
+                                      <select
+                                        value={row.no_retur || ""}
+                                        onChange={(e) => {
+                                          const selectedNoRetur = e.target.value;
+                                          const returItem = availableReturs.find((r) => r.kode_t_retur_supplier === selectedNoRetur);
+                                          setBiayaLainRows((prev) =>
+                                            prev.map((item) => {
+                                              if (item.id !== row.id) return item;
+                                              if (!selectedNoRetur || !returItem) {
+                                                return { ...item, no_retur: "" };
+                                              }
+                                              return {
+                                                ...item,
+                                                no_retur: selectedNoRetur,
+                                                nominal: String(returItem.total_nominal),
+                                                tanda: "-",
+                                                keterangan: `Klaim Retur ${selectedNoRetur}${returItem.catatan ? ` (${returItem.catatan})` : ""}`,
+                                              };
+                                            })
+                                          );
+                                        }}
+                                        disabled={!supplierValue?.value || availableRetursLoading}
+                                        className="w-full rounded-lg border border-emerald-300 bg-white px-2.5 py-1.5 text-xs text-gray-800 shadow-sm focus:border-emerald-500 focus:outline-none"
+                                      >
+                                        <option value="">
+                                          {availableRetursLoading
+                                            ? "-- Memuat dokumen retur... --"
+                                            : selectableReturs.length === 0
+                                              ? "-- Tidak ada dokumen retur belum digunakan --"
+                                              : "-- Pilih Dokumen Retur (Nominal & Keterangan Otomatis) --"}
+                                        </option>
+                                        {selectableReturs.map((r) => (
                                           <option
                                             key={r.kode_t_retur_supplier}
                                             value={r.kode_t_retur_supplier}
-                                            disabled={isChosenInOtherRow}
                                           >
                                             {r.kode_t_retur_supplier} • {formatCurrency(r.total_nominal)}
                                             {r.tgl ? ` (${new Date(r.tgl).toLocaleDateString("id-ID")})` : ""}
                                             {r.catatan ? ` - ${r.catatan}` : ""}
-                                            {isChosenInOtherRow ? " [Sudah dipilih di baris lain]" : ""}
                                           </option>
-                                        );
-                                      })}
-                                  </select>
+                                        ))}
+                                      </select>
+                                    );
+                                  })()}
                                 </div>
                               </div>
                             </div>
