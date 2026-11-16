@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, History, Plus, RefreshCcw, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, History, Plus, RefreshCcw, Trash2, XCircle, Wallet } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Select, { type CSSObjectWithLabel, type SingleValue } from "react-select";
 import Swal from "sweetalert2";
@@ -139,6 +139,8 @@ export default function HistoryKontrabonPage() {
   const [biayaLainRows, setBiayaLainRows] = useState<
     { id: string; tanda: string; jenis: string; nominal: string; keterangan: string }[]
   >([]);
+  const [supplierDeposit, setSupplierDeposit] = useState<number | null>(null);
+  const [supplierDepositLoading, setSupplierDepositLoading] = useState(false);
   const [tglKontrabon, setTglKontrabon] = useState("");
   const [tglFaktur, setTglFaktur] = useState("");
   const [tglGwen, setTglGwen] = useState("");
@@ -196,6 +198,36 @@ export default function HistoryKontrabonPage() {
     });
     return map;
   }, [suppliers]);
+
+  useEffect(() => {
+    const kode = supplierValue?.value;
+    if (!kode) {
+      setSupplierDeposit(null);
+      setSupplierDepositLoading(false);
+      return;
+    }
+    let active = true;
+    setSupplierDepositLoading(true);
+    fetch(`${API_BASE}/supplier-deposit/saldo/${encodeURIComponent(kode)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!active) return;
+        const saldo = Number(data?.saldo_deposit || 0);
+        setSupplierDeposit(saldo);
+      })
+      .catch((err) => {
+        console.error("Gagal load deposit supplier", err);
+        if (!active) return;
+        setSupplierDeposit(0);
+      })
+      .finally(() => {
+        if (active) setSupplierDepositLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [API_BASE, supplierValue?.value]);
 
   const rekeningOptions = useMemo(
     () =>
@@ -1622,86 +1654,142 @@ export default function HistoryKontrabonPage() {
                       <span className="w-12" />
                     </div>
                     {biayaLainRows.map((row) => (
-                      <div key={row.id} className="flex items-end gap-3">
-                        <div className="w-12">
-                          <select
-                            className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm"
-                            value={row.tanda}
-                            onChange={(e) =>
-                              setBiayaLainRows((prev) =>
-                                prev.map((item) =>
-                                  item.id === row.id ? { ...item, tanda: e.target.value } : item
+                      <div key={row.id} className="space-y-2">
+                        <div className="flex items-end gap-3">
+                          <div className="w-12">
+                            <select
+                              className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm"
+                              value={row.tanda}
+                              onChange={(e) =>
+                                setBiayaLainRows((prev) =>
+                                  prev.map((item) =>
+                                    item.id === row.id ? { ...item, tanda: e.target.value } : item
+                                  )
                                 )
-                              )
-                            }
-                          >
-                            <option value="-">-</option>
-                            <option value="+">+</option>
-                          </select>
-                        </div>
-                        <div className="w-40">
-                          <select
-                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-                            value={row.jenis}
-                            onChange={(e) =>
-                              setBiayaLainRows((prev) =>
-                                prev.map((item) =>
-                                  item.id === row.id ? { ...item, jenis: e.target.value } : item
+                              }
+                            >
+                              <option value="-">-</option>
+                              <option value="+">+</option>
+                            </select>
+                          </div>
+                          <div className="w-40">
+                            <select
+                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                              value={row.jenis}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setBiayaLainRows((prev) =>
+                                  prev.map((item) => {
+                                    if (item.id !== row.id) return item;
+                                    const updated = { ...item, jenis: val };
+                                    if (val === "DEPOSIT RETUR") {
+                                      updated.tanda = "-";
+                                      if (!updated.keterangan) {
+                                        updated.keterangan = "Klaim Deposit Retur";
+                                      }
+                                    }
+                                    return updated;
+                                  })
+                                );
+                              }}
+                            >
+                              <option value="">Pilih ...</option>
+                              <option value="TUNAI">TUNAI</option>
+                              <option value="CHEQUE">CHEQUE</option>
+                              <option value="GIRO">GIRO</option>
+                              <option value="DEPOSIT RETUR">DEPOSIT RETUR</option>
+                              <option value="DEPOSIT KUPON">DEPOSIT KUPON</option>
+                              <option value="BIAYA/DLL">BIAYA/DLL</option>
+                            </select>
+                          </div>
+                          <div className="flex-1">
+                            <input
+                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                              placeholder="Biaya lain"
+                              value={row.nominal}
+                              onChange={(e) =>
+                                setBiayaLainRows((prev) =>
+                                  prev.map((item) =>
+                                    item.id === row.id ? { ...item, nominal: e.target.value } : item
+                                  )
                                 )
-                              )
-                            }
-                          >
-                            <option value="">Pilih ...</option>
-                            <option value="TUNAI">TUNAI</option>
-                            <option value="CHEQUE">CHEQUE</option>
-                            <option value="GIRO">GIRO</option>
-                            <option value="DEPOSIT RETUR">DEPOSIT RETUR</option>
-                            <option value="DEPOSIT KUPON">DEPOSIT KUPON</option>
-                            <option value="BIAYA/DLL">BIAYA/DLL</option>
-                          </select>
-                        </div>
-                        <div className="flex-1">
-                          <input
-                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-                            placeholder="Biaya lain"
-                            value={row.nominal}
-                            onChange={(e) =>
-                              setBiayaLainRows((prev) =>
-                                prev.map((item) =>
-                                  item.id === row.id ? { ...item, nominal: e.target.value } : item
+                              }
+                              type="number"
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <input
+                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                              placeholder="Keterangan"
+                              value={row.keterangan}
+                              onChange={(e) =>
+                                setBiayaLainRows((prev) =>
+                                  prev.map((item) =>
+                                    item.id === row.id
+                                      ? { ...item, keterangan: e.target.value }
+                                      : item
+                                  )
                                 )
-                              )
-                            }
-                            type="number"
-                          />
+                              }
+                            />
+                          </div>
+                          <div className="w-12">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setBiayaLainRows((prev) => prev.filter((item) => item.id !== row.id))
+                              }
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-rose-500 text-white"
+                            >
+                              X
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex-1">
-                          <input
-                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-                            placeholder="Keterangan"
-                            value={row.keterangan}
-                            onChange={(e) =>
-                              setBiayaLainRows((prev) =>
-                                prev.map((item) =>
-                                  item.id === row.id
-                                    ? { ...item, keterangan: e.target.value }
-                                    : item
-                                )
-                              )
-                            }
-                          />
-                        </div>
-                        <div className="w-12">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setBiayaLainRows((prev) => prev.filter((item) => item.id !== row.id))
-                            }
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-rose-500 text-white"
-                          >
-                            X
-                          </button>
-                        </div>
+
+                        {row.jenis === "DEPOSIT RETUR" && (
+                          <div className="ml-14 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-emerald-50 border border-emerald-200 px-3.5 py-2 text-xs text-emerald-950">
+                            <div className="flex items-center gap-2">
+                              <Wallet className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                              <span>
+                                Sisa Saldo Deposit Retur Saat Ini:{" "}
+                                <strong className="text-sm font-bold text-emerald-800">
+                                  {!supplierValue?.value
+                                    ? "(Pilih supplier terlebih dahulu)"
+                                    : supplierDepositLoading
+                                    ? "Memuat sisa saldo..."
+                                    : formatCurrency(supplierDeposit ?? 0)}
+                                </strong>
+                              </span>
+                              {supplierValue?.value && supplierDeposit !== null && Number(row.nominal || 0) > supplierDeposit && (
+                                <span className="text-rose-600 font-semibold ml-2">
+                                  (⚠️ Nominal melebihi sisa deposit retur!)
+                                </span>
+                              )}
+                            </div>
+                            {supplierValue?.value && supplierDeposit !== null && supplierDeposit > 0 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setBiayaLainRows((prev) =>
+                                    prev.map((item) =>
+                                      item.id === row.id
+                                        ? {
+                                            ...item,
+                                            nominal: String(supplierDeposit),
+                                            tanda: "-",
+                                            keterangan: item.keterangan || "Klaim Deposit Retur",
+                                          }
+                                        : item
+                                    )
+                                  )
+                                }
+                                className="rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-2.5 py-1 text-xs transition-colors shadow-sm"
+                              >
+                                Gunakan Sisa Deposit ({formatCurrency(supplierDeposit)})
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
