@@ -105,7 +105,8 @@ export default function DepositSupplierPage() {
   useEffect(() => {
     fetchSummary();
     fetchLedger("", "", "", 1);
-  }, [fetchSummary, fetchLedger]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleRunBackfill = async () => {
     if (!confirm("Jalankan sinkronisasi / backfill seluruh data retur supplier ke saldo deposit?")) return;
@@ -136,6 +137,11 @@ export default function DepositSupplierPage() {
         (s.nama_supplier || "").toLowerCase().includes(q)
     );
   }, [summaryList, summarySearch]);
+
+  const selectedSupplierInfo = useMemo(() => {
+    if (!ledgerSupplierFilter) return null;
+    return summaryList.find((s) => s.kode_supplier === ledgerSupplierFilter) || null;
+  }, [summaryList, ledgerSupplierFilter]);
 
   return (
     <div className="p-4 md:p-6 space-y-6">
@@ -291,6 +297,8 @@ export default function DepositSupplierPage() {
                           type="button"
                           onClick={() => {
                             setLedgerSupplierFilter(s.kode_supplier);
+                            setLedgerSearch("");
+                            setLedgerTipeMutasi("");
                             setActiveTab("ledger");
                             fetchLedger(s.kode_supplier, "", "", 1);
                           }}
@@ -311,16 +319,60 @@ export default function DepositSupplierPage() {
       {/* Tab 2: Buku Besar Mutasi (Audit Trail) */}
       {activeTab === "ledger" && (
         <div className="bg-white border border-gray-100 rounded-2xl shadow-sm p-4 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {ledgerSupplierFilter && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm text-emerald-900">
+              <div className="flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                <span>
+                  Menampilkan riwayat mutasi: <strong className="font-semibold">{selectedSupplierInfo?.nama_supplier || ledgerSupplierFilter}</strong>
+                  {selectedSupplierInfo && (
+                    <span className="ml-2 font-mono text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-semibold">
+                      Saldo: {formatIDR(Number(selectedSupplierInfo.saldo_deposit || 0))}
+                    </span>
+                  )}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setLedgerSupplierFilter("");
+                  fetchLedger("", ledgerSearch, ledgerTipeMutasi, 1);
+                }}
+                className="text-emerald-700 hover:text-emerald-900 underline font-medium text-xs"
+              >
+                Tampilkan Semua Supplier
+              </button>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <div className="flex items-center gap-2 border border-gray-200 rounded-xl px-3 py-2 bg-white">
               <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
               <input
                 value={ledgerSearch}
                 onChange={(e) => setLedgerSearch(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && fetchLedger(ledgerSupplierFilter, ledgerSearch, ledgerTipeMutasi, 1)}
-                placeholder="Cari No. Mutasi / No. Dokumen / Supplier..."
+                placeholder="Cari No. Mutasi / No. Dokumen..."
                 className="w-full outline-none text-sm"
               />
+            </div>
+            <div>
+              <select
+                value={ledgerSupplierFilter}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setLedgerSupplierFilter(val);
+                  fetchLedger(val, ledgerSearch, ledgerTipeMutasi, 1);
+                }}
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white"
+              >
+                <option value="">Semua Supplier</option>
+                {summaryList.map((s) => (
+                  <option key={s.kode_supplier} value={s.kode_supplier}>
+                    {s.nama_supplier}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <select
@@ -338,16 +390,18 @@ export default function DepositSupplierPage() {
               </select>
             </div>
             <div className="flex items-center justify-end gap-2">
-              {ledgerSupplierFilter && (
+              {(ledgerSupplierFilter || ledgerSearch || ledgerTipeMutasi) && (
                 <button
                   type="button"
                   onClick={() => {
                     setLedgerSupplierFilter("");
-                    fetchLedger("", ledgerSearch, ledgerTipeMutasi, 1);
+                    setLedgerSearch("");
+                    setLedgerTipeMutasi("");
+                    fetchLedger("", "", "", 1);
                   }}
                   className="px-3 py-2 rounded-xl text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200"
                 >
-                  Reset Filter Supplier
+                  Reset Filter
                 </button>
               )}
               <button
