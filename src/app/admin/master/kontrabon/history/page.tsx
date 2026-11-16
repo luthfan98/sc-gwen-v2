@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, History, Plus, RefreshCcw, Trash2, XCircle, Wallet } from "lucide-react";
+import { CheckCircle2, History, Plus, RefreshCcw, Trash2, XCircle, Wallet, FileText } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Select, { type CSSObjectWithLabel, type SingleValue } from "react-select";
 import Swal from "sweetalert2";
@@ -137,10 +137,21 @@ export default function HistoryKontrabonPage() {
   const [kodeLoading, setKodeLoading] = useState(false);
   const [generatingTagihan, setGeneratingTagihan] = useState<Record<string, boolean>>({});
   const [biayaLainRows, setBiayaLainRows] = useState<
-    { id: string; tanda: string; jenis: string; nominal: string; keterangan: string }[]
+    { id: string; tanda: string; jenis: string; nominal: string; keterangan: string; no_retur?: string }[]
   >([]);
   const [supplierDeposit, setSupplierDeposit] = useState<number | null>(null);
   const [supplierDepositLoading, setSupplierDepositLoading] = useState(false);
+  const [availableReturs, setAvailableReturs] = useState<
+    {
+      kode_t_retur_supplier: string;
+      tgl: string;
+      total_nominal: number;
+      catatan: string;
+      status_retur: string;
+      is_used: boolean;
+    }[]
+  >([]);
+  const [availableRetursLoading, setAvailableRetursLoading] = useState(false);
   const [tglKontrabon, setTglKontrabon] = useState("");
   const [tglFaktur, setTglFaktur] = useState("");
   const [tglGwen, setTglGwen] = useState("");
@@ -204,10 +215,14 @@ export default function HistoryKontrabonPage() {
     if (!kode) {
       setSupplierDeposit(null);
       setSupplierDepositLoading(false);
+      setAvailableReturs([]);
+      setAvailableRetursLoading(false);
       return;
     }
     let active = true;
     setSupplierDepositLoading(true);
+    setAvailableRetursLoading(true);
+
     fetch(`${API_BASE}/supplier-deposit/saldo/${encodeURIComponent(kode)}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -224,10 +239,28 @@ export default function HistoryKontrabonPage() {
         if (active) setSupplierDepositLoading(false);
       });
 
+    const excludeParam = editingKontrabon?.no_kontrabon
+      ? `?exclude_kontrabon=${encodeURIComponent(editingKontrabon.no_kontrabon)}`
+      : "";
+    fetch(`${API_BASE}/supplier-deposit/available-retur/${encodeURIComponent(kode)}${excludeParam}`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (!active) return;
+        setAvailableReturs(Array.isArray(data) ? data : []);
+      })
+      .catch((err) => {
+        console.error("Gagal load retur supplier", err);
+        if (!active) return;
+        setAvailableReturs([]);
+      })
+      .finally(() => {
+        if (active) setAvailableRetursLoading(false);
+      });
+
     return () => {
       active = false;
     };
-  }, [API_BASE, supplierValue?.value]);
+  }, [API_BASE, supplierValue?.value, editingKontrabon?.no_kontrabon]);
 
   const rekeningOptions = useMemo(
     () =>
@@ -1132,6 +1165,7 @@ export default function HistoryKontrabonPage() {
                                   jenis: item?.tipe || "",
                                   nominal: item?.nominal || "",
                                   keterangan: item?.keterangan || "",
+                                  no_retur: item?.no_retur || (String(item?.keterangan || "").match(/RTS\.[A-Za-z0-9]+/)?.[0] || ""),
                                 }))
                                 : [];
                               setBiayaLainRows(mapped);
@@ -1743,47 +1777,93 @@ export default function HistoryKontrabonPage() {
                           </div>
 
                           {row.jenis === "DEPOSIT RETUR" && (
-                            <div className="ml-14 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-emerald-50 border border-emerald-200 px-3.5 py-2 text-xs text-emerald-950">
-                              <div className="flex items-center gap-2">
-                                <Wallet className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                                <span>
-                                  Sisa Saldo Deposit Retur Saat Ini:{" "}
-                                  <strong className="text-sm font-bold text-emerald-800">
-                                    {!supplierValue?.value
-                                      ? "(Pilih supplier terlebih dahulu)"
-                                      : supplierDepositLoading
-                                        ? "Memuat sisa saldo..."
-                                        : formatCurrency(supplierDeposit ?? 0)}
-                                  </strong>
-                                </span>
-                                {supplierValue?.value && supplierDeposit !== null && Number(row.nominal || 0) > supplierDeposit && (
-                                  <span className="text-rose-600 font-semibold ml-2">
-                                    (⚠️ Nominal melebihi sisa deposit retur!)
+                            <div className="ml-14 space-y-2.5 rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-950">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <Wallet className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                                  <span>
+                                    Sisa Saldo Deposit Retur Toko:{" "}
+                                    <strong className="text-sm font-bold text-emerald-800">
+                                      {!supplierValue?.value
+                                        ? "(Pilih supplier terlebih dahulu)"
+                                        : supplierDepositLoading
+                                          ? "Memuat sisa saldo..."
+                                          : formatCurrency(supplierDeposit ?? 0)}
+                                    </strong>
+                                  </span>
+                                  {supplierValue?.value && supplierDeposit !== null && Number(row.nominal || 0) > supplierDeposit && (
+                                    <span className="text-rose-600 font-semibold ml-2">
+                                      (⚠️ Nominal melebihi sisa deposit retur!)
+                                    </span>
+                                  )}
+                                </div>
+                                {row.no_retur && (
+                                  <span className="font-mono text-[11px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md font-semibold border border-emerald-300">
+                                    Dokumen: {row.no_retur}
                                   </span>
                                 )}
                               </div>
-                              {supplierValue?.value && supplierDeposit !== null && supplierDeposit > 0 && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setBiayaLainRows((prev) =>
-                                      prev.map((item) =>
-                                        item.id === row.id
-                                          ? {
-                                            ...item,
-                                            nominal: String(supplierDeposit),
-                                            tanda: "-",
-                                            keterangan: item.keterangan || "Klaim Deposit Retur",
+
+                              {/* Dropdown Pilihan Dokumen Retur */}
+                              <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-2 border-t border-emerald-200/80">
+                                <label className="text-xs font-semibold text-emerald-900 whitespace-nowrap flex items-center gap-1.5">
+                                  <FileText className="w-3.5 h-3.5 text-emerald-700" />
+                                  Pilih Dokumen Retur:
+                                </label>
+                                <div className="flex-1">
+                                  <select
+                                    value={row.no_retur || ""}
+                                    onChange={(e) => {
+                                      const selectedNoRetur = e.target.value;
+                                      const returItem = availableReturs.find((r) => r.kode_t_retur_supplier === selectedNoRetur);
+                                      setBiayaLainRows((prev) =>
+                                        prev.map((item) => {
+                                          if (item.id !== row.id) return item;
+                                          if (!selectedNoRetur || !returItem) {
+                                            return { ...item, no_retur: "" };
                                           }
-                                          : item
-                                      )
-                                    )
-                                  }
-                                  className="rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-2.5 py-1 text-xs transition-colors shadow-sm"
-                                >
-                                  Gunakan Sisa Deposit ({formatCurrency(supplierDeposit)})
-                                </button>
-                              )}
+                                          return {
+                                            ...item,
+                                            no_retur: selectedNoRetur,
+                                            nominal: String(returItem.total_nominal),
+                                            tanda: "-",
+                                            keterangan: `Klaim Retur ${selectedNoRetur}${returItem.catatan ? ` (${returItem.catatan})` : ""}`,
+                                          };
+                                        })
+                                      );
+                                    }}
+                                    disabled={!supplierValue?.value || availableRetursLoading}
+                                    className="w-full rounded-lg border border-emerald-300 bg-white px-2.5 py-1.5 text-xs text-gray-800 shadow-sm focus:border-emerald-500 focus:outline-none"
+                                  >
+                                    <option value="">
+                                      {availableRetursLoading
+                                        ? "-- Memuat dokumen retur... --"
+                                        : availableReturs.filter((r) => !r.is_used || r.kode_t_retur_supplier === row.no_retur).length === 0
+                                          ? "-- Tidak ada dokumen retur belum digunakan --"
+                                          : "-- Pilih Dokumen Retur (Nominal & Keterangan Otomatis) --"}
+                                    </option>
+                                    {availableReturs
+                                      .filter((r) => !r.is_used || r.kode_t_retur_supplier === row.no_retur)
+                                      .map((r) => {
+                                        const isChosenInOtherRow = biayaLainRows.some(
+                                          (other) => other.id !== row.id && other.no_retur === r.kode_t_retur_supplier
+                                        );
+                                        return (
+                                          <option
+                                            key={r.kode_t_retur_supplier}
+                                            value={r.kode_t_retur_supplier}
+                                            disabled={isChosenInOtherRow}
+                                          >
+                                            {r.kode_t_retur_supplier} • {formatCurrency(r.total_nominal)}
+                                            {r.tgl ? ` (${new Date(r.tgl).toLocaleDateString("id-ID")})` : ""}
+                                            {r.catatan ? ` - ${r.catatan}` : ""}
+                                            {isChosenInOtherRow ? " [Sudah dipilih di baris lain]" : ""}
+                                          </option>
+                                        );
+                                      })}
+                                  </select>
+                                </div>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -1881,6 +1961,7 @@ export default function HistoryKontrabonPage() {
                         nominal: row.nominal || "0",
                         keterangan: row.keterangan || "",
                         tipe: row.jenis || "",
+                        no_retur: row.no_retur || "",
                       }));
 
                       const pengadaanRowsPayload = pengadaanRows

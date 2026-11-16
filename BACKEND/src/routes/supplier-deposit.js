@@ -1,7 +1,92 @@
-import { runBackfill } from "../../run_deposit_backfill.js";
+import { runBackfill } from "../../scripts/backfill-supplier-deposit.js";
 
 export default async function supplierDepositRoutes(fastify) {
   const { sql, pool } = fastify.mssql;
+
+  // Get available/unused retur documents for a supplier
+  fastify.get("/available-retur/:kodeSupplier", async (request, reply) => {
+    const kodeSupplier = String(request.params?.kodeSupplier || "").trim();
+    const excludeKontrabon = String(request.query?.exclude_kontrabon || "").trim();
+    if (!kodeSupplier) {
+      return reply.code(400).send({ message: "kode_supplier wajib diisi" });
+    }
+
+    try {
+      // 1. Get all used retur codes from GWEN_t_kontrabon
+      const kontrabonReq = pool.request();
+      let queryKontrabon = `
+        SELECT no_kontrabon, biaya_lain
+        FROM dbo.GWEN_t_kontrabon
+        WHERE biaya_lain IS NOT NULL AND LEN(biaya_lain) > 4
+      `;
+      if (excludeKontrabon) {
+        kontrabonReq.input("exclude_kontrabon", sql.VarChar(255), excludeKontrabon);
+        queryKontrabon += ` AND no_kontrabon <> @exclude_kontrabon`;
+      }
+      const kontrabonRes = await kontrabonReq.query(queryKontrabon);
+
+      const usedRtsSet = new Set();
+      for (const row of kontrabonRes.recordset || []) {
+        if (!row.biaya_lain) continue;
+        const matches = String(row.biaya_lain).match(/RTS\.[A-Za-z0-9]+/g);
+        if (matches) {
+          matches.forEach((m) => usedRtsSet.add(m));
+        }
+      }
+
+      // Also check ledger mutasi KELUAR if any
+      const ledgerOutRes = await pool.request().query(`
+        SELECT kode_ref
+        FROM dbo.GWEN_t_supplier_deposit_ledger
+        WHERE tipe_mutasi = 'KELUAR' AND kode_ref IS NOT NULL
+      `);
+      for (const row of ledgerOutRes.recordset || []) {
+        if (!row.kode_ref) continue;
+        const matches = String(row.kode_ref).match(/RTS\.[A-Za-z0-9]+/g);
+        if (matches) {
+          matches.forEach((m) => usedRtsSet.add(m));
+        }
+      }
+
+      // 2. Fetch retur records for this supplier
+      const returRes = await pool
+        .request()
+        .input("kode_supplier", sql.VarChar(255), kodeSupplier)
+        .query(`
+          SELECT
+            r.kode_t_retur_supplier,
+            r.tgl,
+            r.kode_supplier,
+            COALESCE(r.nama_supplier COLLATE DATABASE_DEFAULT, s.nama COLLATE DATABASE_DEFAULT, r.kode_supplier COLLATE DATABASE_DEFAULT) AS nama_supplier,
+            r.total_nominal,
+            r.catatan,
+            r.status_retur
+          FROM dbo.GWEN_t_retur_supplier r
+          LEFT JOIN dbo.m_supplier s
+            ON s.kode_supplier COLLATE DATABASE_DEFAULT = r.kode_supplier COLLATE DATABASE_DEFAULT
+          WHERE r.kode_supplier COLLATE DATABASE_DEFAULT = @kode_supplier COLLATE DATABASE_DEFAULT
+            AND ISNULL(r.total_nominal, 0) > 0
+          ORDER BY r.tgl DESC, r.kode_t_retur_supplier DESC;
+        `);
+
+      const allReturs = returRes.recordset || [];
+      const items = allReturs.map((r) => ({
+        kode_t_retur_supplier: r.kode_t_retur_supplier,
+        tgl: r.tgl,
+        kode_supplier: r.kode_supplier,
+        nama_supplier: r.nama_supplier,
+        total_nominal: Number(r.total_nominal || 0),
+        catatan: r.catatan || "",
+        status_retur: r.status_retur || "",
+        is_used: usedRtsSet.has(r.kode_t_retur_supplier),
+      }));
+
+      return reply.send(items);
+    } catch (err) {
+      fastify.log.error({ err }, "Failed to fetch available retur supplier");
+      return reply.code(500).send({ message: "Gagal memuat dokumen retur supplier" });
+    }
+  });
 
   // Get deposit balance for a specific supplier
   fastify.get("/saldo/:kodeSupplier", async (request, reply) => {
