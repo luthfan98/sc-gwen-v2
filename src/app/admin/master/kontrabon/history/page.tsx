@@ -164,11 +164,11 @@ export default function HistoryKontrabonPage() {
         const data = await res.json();
         const mapped = Array.isArray(data)
           ? data.map((row: any) => ({
-              kode_supplier: row.kode_supplier,
-              nama: row.nama || row.nama_supplier || row.supplier || "",
-              status: row.status ?? null,
-              supplier_status: row.supplier_status ?? null,
-            }))
+            kode_supplier: row.kode_supplier,
+            nama: row.nama || row.nama_supplier || row.supplier || "",
+            status: row.status ?? null,
+            supplier_status: row.supplier_status ?? null,
+          }))
           : [];
         setSuppliers(mapped);
       } catch (err) {
@@ -880,18 +880,16 @@ export default function HistoryKontrabonPage() {
             Refresh
           </button>
           <button
-            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm ${
-              statusFilter === "paid" ? "bg-emerald-600" : "bg-emerald-500/60"
-            }`}
+            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm ${statusFilter === "paid" ? "bg-emerald-600" : "bg-emerald-500/60"
+              }`}
             onClick={() => setStatusFilter("paid")}
           >
             <CheckCircle2 className="h-4 w-4" />
             Tampilkan Sudah Lunas
           </button>
           <button
-            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm ${
-              statusFilter === "unpaid" ? "bg-amber-600" : "bg-amber-500/60"
-            }`}
+            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm ${statusFilter === "unpaid" ? "bg-amber-600" : "bg-amber-500/60"
+              }`}
             onClick={() => setStatusFilter("unpaid")}
           >
             <XCircle className="h-4 w-4" />
@@ -1062,11 +1060,10 @@ export default function HistoryKontrabonPage() {
                             <div>{renderSlashList(row.kode_t_tagihan_list)}</div>
                             {isMissingTagihan && (
                               <button
-                                className={`rounded-md px-3 py-1.5 text-xs font-semibold text-white ${
-                                  generatingTagihan[row.no_kontrabon]
+                                className={`rounded-md px-3 py-1.5 text-xs font-semibold text-white ${generatingTagihan[row.no_kontrabon]
                                     ? "bg-gray-400"
                                     : "bg-emerald-600 hover:bg-emerald-700"
-                                }`}
+                                  }`}
                                 disabled={Boolean(generatingTagihan[row.no_kontrabon])}
                                 onClick={() => handleGenerateTagihan(row)}
                               >
@@ -1095,25 +1092,25 @@ export default function HistoryKontrabonPage() {
                             setRekeningList(
                               row.id_rekening
                                 ? [
-                                    {
-                                      id: row.id_rekening,
-                                      kode_supplier: row.kode_supplier || null,
-                                      nama_supplier: null,
-                                      nama_bank: row.nama_bank || null,
-                                      no_rekening: row.no_rekening || null,
-                                      atas_nama: row.atas_nama || null,
-                                      cabang: row.cabang || null,
-                                      status: 1,
-                                    },
-                                  ]
+                                  {
+                                    id: row.id_rekening,
+                                    kode_supplier: row.kode_supplier || null,
+                                    nama_supplier: null,
+                                    nama_bank: row.nama_bank || null,
+                                    no_rekening: row.no_rekening || null,
+                                    atas_nama: row.atas_nama || null,
+                                    cabang: row.cabang || null,
+                                    status: 1,
+                                  },
+                                ]
                                 : []
                             );
                             setRekeningValue(
                               row.id_rekening
                                 ? {
-                                    value: row.id_rekening,
-                                    label: `${row.nama_bank || "-"} - ${row.no_rekening || "-"}`,
-                                  }
+                                  value: row.id_rekening,
+                                  label: `${row.nama_bank || "-"} - ${row.no_rekening || "-"}`,
+                                }
                                 : null
                             );
                             setNomorKontrabon(row.no_kontrabon || "");
@@ -1130,12 +1127,12 @@ export default function HistoryKontrabonPage() {
                               const parsed = row.biaya_lain ? JSON.parse(row.biaya_lain) : [];
                               const mapped = Array.isArray(parsed)
                                 ? parsed.map((item: any) => ({
-                                    id: `row-${Date.now()}-${Math.random()}`,
-                                    tanda: item?.jenis || "-",
-                                    jenis: item?.tipe || "",
-                                    nominal: item?.nominal || "",
-                                    keterangan: item?.keterangan || "",
-                                  }))
+                                  id: `row-${Date.now()}-${Math.random()}`,
+                                  tanda: item?.jenis || "-",
+                                  jenis: item?.tipe || "",
+                                  nominal: item?.nominal || "",
+                                  keterangan: item?.keterangan || "",
+                                }))
                                 : [];
                               setBiayaLainRows(mapped);
                             } catch {
@@ -1157,15 +1154,15 @@ export default function HistoryKontrabonPage() {
                               const parsed = detail?.header?.kode_t_pengadaan
                                 ? parsePengadaanCodes(detail.header.kode_t_pengadaan)
                                 : row.kode_t_pengadaan
-                                ? parsePengadaanCodes(row.kode_t_pengadaan)
-                                : [];
+                                  ? parsePengadaanCodes(row.kode_t_pengadaan)
+                                  : [];
                               const list = Array.isArray(parsed) ? parsed : [];
                               const mappedRows = list.length
                                 ? list.map((code: string) => ({
-                                    id: `row-${Date.now()}-${code}`,
-                                    kode_t_pengadaan: code,
-                                    nominal: String(nominalByPengadaan.get(code) ?? ""),
-                                  }))
+                                  id: `row-${Date.now()}-${code}`,
+                                  kode_t_pengadaan: code,
+                                  nominal: String(nominalByPengadaan.get(code) ?? ""),
+                                }))
                                 : [{ id: "row-1", kode_t_pengadaan: "", nominal: "" }];
                               setPengadaanRows(mappedRows);
                               setNominalFakturInput(String(getNominalFaktur(detail?.header || row) || ""));
@@ -1178,10 +1175,10 @@ export default function HistoryKontrabonPage() {
                               setPengadaanRows(
                                 list.length
                                   ? list.map((code: string) => ({
-                                      id: `row-${Date.now()}-${code}`,
-                                      kode_t_pengadaan: code,
-                                      nominal: "",
-                                    }))
+                                    id: `row-${Date.now()}-${code}`,
+                                    kode_t_pengadaan: code,
+                                    nominal: "",
+                                  }))
                                   : [{ id: "row-1", kode_t_pengadaan: "", nominal: "" }]
                               );
                               if (row.kode_supplier) {
@@ -1222,33 +1219,33 @@ export default function HistoryKontrabonPage() {
       {showModal && (
         <div className="fixed inset-0 z-50 bg-black/40 p-4">
           <div className="mx-auto flex h-[calc(100vh-2rem)] max-w-[1800px] items-stretch justify-center gap-4 overflow-hidden">
-          <div className="flex h-full w-full max-w-[1100px] flex-col rounded-xl bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
-              <div className="flex items-center gap-2 text-base font-semibold text-gray-800">
-                <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-[#0f756b] text-white">
-                  {editingKontrabon ? "?" : "+"}
-                </span>
-                {editingKontrabon ? "Edit Data" : "Tambah Data"}
+            <div className="flex h-full w-full max-w-[1100px] flex-col rounded-xl bg-white shadow-xl">
+              <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+                <div className="flex items-center gap-2 text-base font-semibold text-gray-800">
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-[#0f756b] text-white">
+                    {editingKontrabon ? "?" : "+"}
+                  </span>
+                  {editingKontrabon ? "Edit Data" : "Tambah Data"}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowModal(false);
+                    setEditingKontrabon(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  X
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowModal(false);
-                  setEditingKontrabon(null);
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                X
-              </button>
-            </div>
 
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-              <div className="space-y-2">
-                <label className="text-sm text-gray-600">Supplier</label>
-                <Select
-                  instanceId="kontrabon-supplier"
-                  options={supplierOptions}
-                  value={supplierValue}
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+                <div className="space-y-2">
+                  <label className="text-sm text-gray-600">Supplier</label>
+                  <Select
+                    instanceId="kontrabon-supplier"
+                    options={supplierOptions}
+                    value={supplierValue}
                     onChange={(option: SingleValue<{ value: string; label: string }>) => {
                       const next = option ?? null;
                       setSupplierValue(next);
@@ -1267,646 +1264,645 @@ export default function HistoryKontrabonPage() {
                     placeholder={supplierLoading ? "Memuat supplier..." : "Pilih Supplier ..."}
                     isClearable
                     isLoading={supplierLoading}
-                  classNamePrefix="react-select"
-                  styles={{
-                    control: (base: CSSObjectWithLabel) => ({
-                      ...base,
-                      minHeight: 44,
-                      borderRadius: 8,
-                      borderColor: "#e5e7eb",
-                      boxShadow: "none",
-                    }),
-                    valueContainer: (base: CSSObjectWithLabel) => ({
-                      ...base,
-                      padding: "0 12px",
-                    }),
-                    input: (base: CSSObjectWithLabel) => ({
-                      ...base,
-                      margin: 0,
-                      padding: 0,
-                    }),
-                    indicatorsContainer: (base: CSSObjectWithLabel) => ({
-                      ...base,
-                      height: 44,
-                    }),
-                    menu: (base: CSSObjectWithLabel) => ({
-                      ...base,
-                      zIndex: 60,
-                    }),
-                  }}
-                />
-              </div>
+                    classNamePrefix="react-select"
+                    styles={{
+                      control: (base: CSSObjectWithLabel) => ({
+                        ...base,
+                        minHeight: 44,
+                        borderRadius: 8,
+                        borderColor: "#e5e7eb",
+                        boxShadow: "none",
+                      }),
+                      valueContainer: (base: CSSObjectWithLabel) => ({
+                        ...base,
+                        padding: "0 12px",
+                      }),
+                      input: (base: CSSObjectWithLabel) => ({
+                        ...base,
+                        margin: 0,
+                        padding: 0,
+                      }),
+                      indicatorsContainer: (base: CSSObjectWithLabel) => ({
+                        ...base,
+                        height: 44,
+                      }),
+                      menu: (base: CSSObjectWithLabel) => ({
+                        ...base,
+                        zIndex: 60,
+                      }),
+                    }}
+                  />
+                </div>
 
-              <div className="space-y-2">
-                <label className="text-sm text-gray-600">Rekening</label>
-                <Select
-                  instanceId="kontrabon-rekening"
-                  options={rekeningOptions}
-                  value={rekeningValue}
+                <div className="space-y-2">
+                  <label className="text-sm text-gray-600">Rekening</label>
+                  <Select
+                    instanceId="kontrabon-rekening"
+                    options={rekeningOptions}
+                    value={rekeningValue}
                     onChange={(option: SingleValue<{ value: number; label: string }>) => {
                       const next = option ?? null;
                       setRekeningValue(next);
                     }}
-                  placeholder={rekeningLoading ? "Memuat rekening..." : "Pilih Rekening"}
-                  isClearable
-                  isLoading={rekeningLoading}
-                  isDisabled={!supplierValue}
-                  classNamePrefix="react-select"
-                  styles={{
-                    control: (base: CSSObjectWithLabel) => ({
-                      ...base,
-                      minHeight: 44,
-                      borderRadius: 8,
-                      borderColor: "#e5e7eb",
-                      boxShadow: "none",
-                    }),
-                    valueContainer: (base: CSSObjectWithLabel) => ({
-                      ...base,
-                      padding: "0 12px",
-                    }),
-                    input: (base: CSSObjectWithLabel) => ({
-                      ...base,
-                      margin: 0,
-                      padding: 0,
-                    }),
-                    indicatorsContainer: (base: CSSObjectWithLabel) => ({
-                      ...base,
-                      height: 44,
-                    }),
-                    menu: (base: CSSObjectWithLabel) => ({
-                      ...base,
-                      zIndex: 60,
-                    }),
-                  }}
-                />
-              </div>
+                    placeholder={rekeningLoading ? "Memuat rekening..." : "Pilih Rekening"}
+                    isClearable
+                    isLoading={rekeningLoading}
+                    isDisabled={!supplierValue}
+                    classNamePrefix="react-select"
+                    styles={{
+                      control: (base: CSSObjectWithLabel) => ({
+                        ...base,
+                        minHeight: 44,
+                        borderRadius: 8,
+                        borderColor: "#e5e7eb",
+                        boxShadow: "none",
+                      }),
+                      valueContainer: (base: CSSObjectWithLabel) => ({
+                        ...base,
+                        padding: "0 12px",
+                      }),
+                      input: (base: CSSObjectWithLabel) => ({
+                        ...base,
+                        margin: 0,
+                        padding: 0,
+                      }),
+                      indicatorsContainer: (base: CSSObjectWithLabel) => ({
+                        ...base,
+                        height: 44,
+                      }),
+                      menu: (base: CSSObjectWithLabel) => ({
+                        ...base,
+                        zIndex: 60,
+                      }),
+                    }}
+                  />
+                </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-sm text-gray-600">Nama Bank</label>
-                  <input
-                    className="w-full rounded-lg bg-gray-100 px-3 py-2.5 text-sm text-gray-700"
-                    placeholder="Nama bank"
-                    value={selectedRekening?.nama_bank || ""}
-                    disabled
-                  />
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-sm text-gray-600">Nama Bank</label>
+                    <input
+                      className="w-full rounded-lg bg-gray-100 px-3 py-2.5 text-sm text-gray-700"
+                      placeholder="Nama bank"
+                      value={selectedRekening?.nama_bank || ""}
+                      disabled
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm text-gray-600">Rekening Bank</label>
+                    <input
+                      className="w-full rounded-lg bg-gray-100 px-3 py-2.5 text-sm text-gray-700"
+                      placeholder="Rekening bank"
+                      value={selectedRekening?.no_rekening || ""}
+                      disabled
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm text-gray-600">Atas Nama Rekening</label>
+                    <input
+                      className="w-full rounded-lg bg-gray-100 px-3 py-2.5 text-sm text-gray-700"
+                      placeholder="Atas nama rekening"
+                      value={selectedRekening?.atas_nama || ""}
+                      disabled
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm text-gray-600">Cabang</label>
+                    <input
+                      className="w-full rounded-lg bg-gray-100 px-3 py-2.5 text-sm text-gray-700"
+                      placeholder="Cabang"
+                      value={selectedRekening?.cabang || ""}
+                      disabled
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-sm text-gray-600">Rekening Bank</label>
-                  <input
-                    className="w-full rounded-lg bg-gray-100 px-3 py-2.5 text-sm text-gray-700"
-                    placeholder="Rekening bank"
-                    value={selectedRekening?.no_rekening || ""}
-                    disabled
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm text-gray-600">Atas Nama Rekening</label>
-                  <input
-                    className="w-full rounded-lg bg-gray-100 px-3 py-2.5 text-sm text-gray-700"
-                    placeholder="Atas nama rekening"
-                    value={selectedRekening?.atas_nama || ""}
-                    disabled
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm text-gray-600">Cabang</label>
-                  <input
-                    className="w-full rounded-lg bg-gray-100 px-3 py-2.5 text-sm text-gray-700"
-                    placeholder="Cabang"
-                    value={selectedRekening?.cabang || ""}
-                    disabled
-                  />
-                </div>
-              </div>
 
-              <div className="rounded-lg border-2 border-dashed border-gray-300 p-3">
-                <label className="text-sm text-gray-600">Nomor Pengadaan</label>
-                <div className="mt-2 grid gap-3">
-                  {pengadaanRows.map((row) => (
-                    <div key={row.id} className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-                      <div className="grid gap-2 md:grid-cols-[auto,1.6fr,1fr]">
-                        <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPengadaanRows((prev) =>
-                              prev.length === 1
-                                ? prev.map((item) =>
-                                    item.id === row.id
-                                      ? { ...item, kode_t_pengadaan: "", nominal: "" }
-                                      : item
-                                  )
-                                : prev.filter((item) => item.id !== row.id)
-                            );
-                            setNominalFakturManual(false);
-                            setNominalFakturInput("");
-                          }}
-                          className="rounded-lg bg-rose-500 px-3 py-2 text-xs font-semibold text-white"
-                        >
-                          -
-                        </button>
-                        <div className="flex w-full items-center gap-2">
-                          <div className="flex-1">
-                            {(() => {
-                              const available = getAvailablePengadaan(row.id);
-                              const selectedItem = pengadaanList.find(
-                                (item) => item.kode_t_pengadaan === row.kode_t_pengadaan
-                              );
-                              const selectValue = row.kode_t_pengadaan
-                                ? {
-                                    value: row.kode_t_pengadaan,
-                                    label: `${row.kode_t_pengadaan} • ${formatCurrency(
-                                      getPengadaanDisplayAmount(row, selectedItem)
-                                    )}${
-                                      Number(selectedItem?.total_tagihan ?? 0) > 0 &&
-                                      Number(selectedItem?.total_tagihan ?? 0) < Number(selectedItem?.total_akhir ?? 0)
-                                        ? " (Sisa Titip Bayar)"
-                                        : ""
-                                    }`,
-                                  }
-                                : null;
-                              const options = available.map((opt) => {
-                                const totalAkhir = Number(opt.total_akhir ?? 0);
-                                const totalTagihan = Number(opt.total_tagihan ?? 0);
-                                const existingRow = pengadaanRows.find((item) => item.kode_t_pengadaan === opt.kode_t_pengadaan);
-                                const isPartial = totalTagihan > 0 && totalTagihan < totalAkhir;
-                                return {
-                                  value: opt.kode_t_pengadaan,
-                                  label: `${opt.kode_t_pengadaan} • ${formatCurrency(
-                                    getPengadaanDisplayAmount(
-                                      existingRow,
-                                      opt
-                                    )
-                                  )}${isPartial ? " (Sisa Titip Bayar)" : ""}`,
-                                };
-                              });
-                              return (
-                            <Select
-                              instanceId={`kontrabon-pengadaan-${row.id}`}
-                              options={options}
-                              value={selectValue}
-                              onChange={(option: SingleValue<{ value: string; label: string }>) => {
-                                const nextCode = option?.value || "";
+                <div className="rounded-lg border-2 border-dashed border-gray-300 p-3">
+                  <label className="text-sm text-gray-600">Nomor Pengadaan</label>
+                  <div className="mt-2 grid gap-3">
+                    {pengadaanRows.map((row) => (
+                      <div key={row.id} className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                        <div className="grid gap-2 md:grid-cols-[auto,1.6fr,1fr]">
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
                                 setPengadaanRows((prev) =>
-                                  prev.map((item) =>
-                                    item.id === row.id
-                                      ? { ...item, kode_t_pengadaan: nextCode }
-                                      : item
-                                  )
+                                  prev.length === 1
+                                    ? prev.map((item) =>
+                                      item.id === row.id
+                                        ? { ...item, kode_t_pengadaan: "", nominal: "" }
+                                        : item
+                                    )
+                                    : prev.filter((item) => item.id !== row.id)
                                 );
-                                if (nextCode) {
-                                  fetchPengadaanPreview(nextCode);
-                                }
                                 setNominalFakturManual(false);
                                 setNominalFakturInput("");
                               }}
-                              placeholder={pengadaanLoading ? "Memuat..." : "Pilih ..."}
-                              isClearable
-                              isLoading={pengadaanLoading}
-                              classNamePrefix="react-select"
-                              styles={{
-                                control: (base: CSSObjectWithLabel) => ({
-                                  ...base,
-                                  minHeight: 40,
-                                  borderRadius: 8,
-                                  borderColor: "#e5e7eb",
-                                  boxShadow: "none",
-                                }),
-                                valueContainer: (base: CSSObjectWithLabel) => ({
-                                  ...base,
-                                  padding: "0 12px",
-                                }),
-                                input: (base: CSSObjectWithLabel) => ({
-                                  ...base,
-                                  margin: 0,
-                                  padding: 0,
-                                }),
-                                indicatorsContainer: (base: CSSObjectWithLabel) => ({
-                                  ...base,
-                                  height: 40,
-                                }),
-                                menu: (base: CSSObjectWithLabel) => ({
-                                  ...base,
-                                  zIndex: 60,
-                                }),
-                              }}
-                              />
-                              );
-                            })()}
-                          </div>
-                          {(() => {
-                            const selected = pengadaanList.find(
-                              (item) => item.kode_t_pengadaan === row.kode_t_pengadaan
-                            );
-                            return (
-                              <input
-                                className="h-10 w-44 rounded-lg bg-gray-100 px-3 text-sm text-gray-700"
-                                value={
-                                  selected
-                                    ? formatCurrency(getPengadaanDisplayAmount(row, selected))
-                                    : ""
-                                }
-                                placeholder="Total akhir PEN"
-                                readOnly
-                              />
-                            );
-                          })()}
-                        </div>
-                      </div>
-                      </div>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setPengadaanRows((prev) => [
-                        ...prev,
-                        {
-                          id: `row-${Date.now()}`,
-                          kode_t_pengadaan: "",
-                          nominal: "",
-                        },
-                      ])
-                    }
-                    className="w-full rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-gray-700"
-                  >
-                    + Tambah
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-sm text-gray-600">Tanggal Kontrabon</label>
-                  <input
-                    type="date"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
-                    value={tglKontrabon}
-                    onChange={(e) => setTglKontrabon(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm text-gray-600">Tanggal Faktur</label>
-                  <input
-                    type="date"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
-                    value={tglFaktur}
-                    onChange={(e) => setTglFaktur(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm text-gray-600">Tanggal Gwen</label>
-                  <input
-                    type="date"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
-                    value={tglGwen}
-                    onChange={(e) => setTglGwen(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-sm text-gray-600">Rencana Trf</label>
-                  <input
-                    type="date"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
-                    value={rencanaTfDari}
-                    onChange={(e) => setRencanaTfDari(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm text-gray-600">Rencana Trf Sampai</label>
-                  <input
-                    type="date"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
-                    value={rencanaTfSampai}
-                    onChange={(e) => setRencanaTfSampai(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="rounded-lg border-2 border-dashed border-red-300 bg-red-50/40 px-3 py-2 text-sm text-gray-700">
-                Total Nominal TF pada tanggal tersebut
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-sm text-gray-600">Nomor Faktur</label>
-                  <input
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
-                    value={noFaktur}
-                    onChange={(e) => setNoFaktur(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm text-gray-600">Nomor Kontrabon</label>
-                  <input
-                    className="w-full rounded-lg bg-gray-100 px-3 py-2.5 text-sm text-gray-700"
-                    value={kodeLoading ? "Memuat..." : nomorKontrabon}
-                    readOnly
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-sm text-gray-600">Tanggal Faktur Pajak</label>
-                  <input
-                    type="date"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
-                    value={tglFakturPajak}
-                    onChange={(e) => setTglFakturPajak(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm text-gray-600">Nomor Faktur Pajak</label>
-                  <input
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
-                    value={noFakturPajak}
-                    onChange={(e) => setNoFakturPajak(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm text-gray-600">Nominal Faktur</label>
-                <input
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
-                  value={nominalFakturInput}
-                  onChange={(e) => {
-                    setNominalFakturManual(true);
-                    setNominalFakturInput(e.target.value);
-                  }}
-                />
-              </div>
-
-              <div className="space-y-4">
-                <div className="text-center text-sm font-semibold text-gray-700">Biaya Lain</div>
-                {biayaLainRows.length > 0 && (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-3 text-xs font-semibold text-gray-500">
-                      <span className="w-12" />
-                      <span className="w-40">Jenis</span>
-                      <span className="flex-1">Biaya Lain</span>
-                      <span className="flex-1">Keterangan Biaya</span>
-                      <span className="w-12" />
-                    </div>
-                    {biayaLainRows.map((row) => (
-                      <div key={row.id} className="space-y-2">
-                        <div className="flex items-end gap-3">
-                          <div className="w-12">
-                            <select
-                              className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm"
-                              value={row.tanda}
-                              onChange={(e) =>
-                                setBiayaLainRows((prev) =>
-                                  prev.map((item) =>
-                                    item.id === row.id ? { ...item, tanda: e.target.value } : item
-                                  )
-                                )
-                              }
+                              className="rounded-lg bg-rose-500 px-3 py-2 text-xs font-semibold text-white"
                             >
-                              <option value="-">-</option>
-                              <option value="+">+</option>
-                            </select>
-                          </div>
-                          <div className="w-40">
-                            <select
-                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-                              value={row.jenis}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setBiayaLainRows((prev) =>
-                                  prev.map((item) => {
-                                    if (item.id !== row.id) return item;
-                                    const updated = { ...item, jenis: val };
-                                    if (val === "DEPOSIT RETUR") {
-                                      updated.tanda = "-";
-                                      if (!updated.keterangan) {
-                                        updated.keterangan = "Klaim Deposit Retur";
-                                      }
-                                    }
-                                    return updated;
-                                  })
-                                );
-                              }}
-                            >
-                              <option value="">Pilih ...</option>
-                              <option value="TUNAI">TUNAI</option>
-                              <option value="CHEQUE">CHEQUE</option>
-                              <option value="GIRO">GIRO</option>
-                              <option value="DEPOSIT RETUR">DEPOSIT RETUR</option>
-                              <option value="DEPOSIT KUPON">DEPOSIT KUPON</option>
-                              <option value="BIAYA/DLL">BIAYA/DLL</option>
-                            </select>
-                          </div>
-                          <div className="flex-1">
-                            <input
-                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-                              placeholder="Biaya lain"
-                              value={row.nominal}
-                              onChange={(e) =>
-                                setBiayaLainRows((prev) =>
-                                  prev.map((item) =>
-                                    item.id === row.id ? { ...item, nominal: e.target.value } : item
-                                  )
-                                )
-                              }
-                              type="number"
-                            />
-                          </div>
-                          <div className="flex-1">
-                            <input
-                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-                              placeholder="Keterangan"
-                              value={row.keterangan}
-                              onChange={(e) =>
-                                setBiayaLainRows((prev) =>
-                                  prev.map((item) =>
-                                    item.id === row.id
-                                      ? { ...item, keterangan: e.target.value }
-                                      : item
-                                  )
-                                )
-                              }
-                            />
-                          </div>
-                          <div className="w-12">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setBiayaLainRows((prev) => prev.filter((item) => item.id !== row.id))
-                              }
-                              className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-rose-500 text-white"
-                            >
-                              X
+                              -
                             </button>
+                            <div className="flex w-full items-center gap-2">
+                              <div className="flex-1">
+                                {(() => {
+                                  const available = getAvailablePengadaan(row.id);
+                                  const selectedItem = pengadaanList.find(
+                                    (item) => item.kode_t_pengadaan === row.kode_t_pengadaan
+                                  );
+                                  const selectValue = row.kode_t_pengadaan
+                                    ? {
+                                      value: row.kode_t_pengadaan,
+                                      label: `${row.kode_t_pengadaan} • ${formatCurrency(
+                                        getPengadaanDisplayAmount(row, selectedItem)
+                                      )}${Number(selectedItem?.total_tagihan ?? 0) > 0 &&
+                                          Number(selectedItem?.total_tagihan ?? 0) < Number(selectedItem?.total_akhir ?? 0)
+                                          ? " (Sisa Titip Bayar)"
+                                          : ""
+                                        }`,
+                                    }
+                                    : null;
+                                  const options = available.map((opt) => {
+                                    const totalAkhir = Number(opt.total_akhir ?? 0);
+                                    const totalTagihan = Number(opt.total_tagihan ?? 0);
+                                    const existingRow = pengadaanRows.find((item) => item.kode_t_pengadaan === opt.kode_t_pengadaan);
+                                    const isPartial = totalTagihan > 0 && totalTagihan < totalAkhir;
+                                    return {
+                                      value: opt.kode_t_pengadaan,
+                                      label: `${opt.kode_t_pengadaan} • ${formatCurrency(
+                                        getPengadaanDisplayAmount(
+                                          existingRow,
+                                          opt
+                                        )
+                                      )}${isPartial ? " (Sisa Titip Bayar)" : ""}`,
+                                    };
+                                  });
+                                  return (
+                                    <Select
+                                      instanceId={`kontrabon-pengadaan-${row.id}`}
+                                      options={options}
+                                      value={selectValue}
+                                      onChange={(option: SingleValue<{ value: string; label: string }>) => {
+                                        const nextCode = option?.value || "";
+                                        setPengadaanRows((prev) =>
+                                          prev.map((item) =>
+                                            item.id === row.id
+                                              ? { ...item, kode_t_pengadaan: nextCode }
+                                              : item
+                                          )
+                                        );
+                                        if (nextCode) {
+                                          fetchPengadaanPreview(nextCode);
+                                        }
+                                        setNominalFakturManual(false);
+                                        setNominalFakturInput("");
+                                      }}
+                                      placeholder={pengadaanLoading ? "Memuat..." : "Pilih ..."}
+                                      isClearable
+                                      isLoading={pengadaanLoading}
+                                      classNamePrefix="react-select"
+                                      styles={{
+                                        control: (base: CSSObjectWithLabel) => ({
+                                          ...base,
+                                          minHeight: 40,
+                                          borderRadius: 8,
+                                          borderColor: "#e5e7eb",
+                                          boxShadow: "none",
+                                        }),
+                                        valueContainer: (base: CSSObjectWithLabel) => ({
+                                          ...base,
+                                          padding: "0 12px",
+                                        }),
+                                        input: (base: CSSObjectWithLabel) => ({
+                                          ...base,
+                                          margin: 0,
+                                          padding: 0,
+                                        }),
+                                        indicatorsContainer: (base: CSSObjectWithLabel) => ({
+                                          ...base,
+                                          height: 40,
+                                        }),
+                                        menu: (base: CSSObjectWithLabel) => ({
+                                          ...base,
+                                          zIndex: 60,
+                                        }),
+                                      }}
+                                    />
+                                  );
+                                })()}
+                              </div>
+                              {(() => {
+                                const selected = pengadaanList.find(
+                                  (item) => item.kode_t_pengadaan === row.kode_t_pengadaan
+                                );
+                                return (
+                                  <input
+                                    className="h-10 w-44 rounded-lg bg-gray-100 px-3 text-sm text-gray-700"
+                                    value={
+                                      selected
+                                        ? formatCurrency(getPengadaanDisplayAmount(row, selected))
+                                        : ""
+                                    }
+                                    placeholder="Total akhir PEN"
+                                    readOnly
+                                  />
+                                );
+                              })()}
+                            </div>
                           </div>
                         </div>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPengadaanRows((prev) => [
+                          ...prev,
+                          {
+                            id: `row-${Date.now()}`,
+                            kode_t_pengadaan: "",
+                            nominal: "",
+                          },
+                        ])
+                      }
+                      className="w-full rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-gray-700"
+                    >
+                      + Tambah
+                    </button>
+                  </div>
+                </div>
 
-                        {row.jenis === "DEPOSIT RETUR" && (
-                          <div className="ml-14 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-emerald-50 border border-emerald-200 px-3.5 py-2 text-xs text-emerald-950">
-                            <div className="flex items-center gap-2">
-                              <Wallet className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                              <span>
-                                Sisa Saldo Deposit Retur Saat Ini:{" "}
-                                <strong className="text-sm font-bold text-emerald-800">
-                                  {!supplierValue?.value
-                                    ? "(Pilih supplier terlebih dahulu)"
-                                    : supplierDepositLoading
-                                    ? "Memuat sisa saldo..."
-                                    : formatCurrency(supplierDeposit ?? 0)}
-                                </strong>
-                              </span>
-                              {supplierValue?.value && supplierDeposit !== null && Number(row.nominal || 0) > supplierDeposit && (
-                                <span className="text-rose-600 font-semibold ml-2">
-                                  (⚠️ Nominal melebihi sisa deposit retur!)
-                                </span>
-                              )}
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-sm text-gray-600">Tanggal Kontrabon</label>
+                    <input
+                      type="date"
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
+                      value={tglKontrabon}
+                      onChange={(e) => setTglKontrabon(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm text-gray-600">Tanggal Faktur</label>
+                    <input
+                      type="date"
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
+                      value={tglFaktur}
+                      onChange={(e) => setTglFaktur(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm text-gray-600">Tanggal Gwen</label>
+                    <input
+                      type="date"
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
+                      value={tglGwen}
+                      onChange={(e) => setTglGwen(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-sm text-gray-600">Rencana Trf</label>
+                    <input
+                      type="date"
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
+                      value={rencanaTfDari}
+                      onChange={(e) => setRencanaTfDari(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm text-gray-600">Rencana Trf Sampai</label>
+                    <input
+                      type="date"
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
+                      value={rencanaTfSampai}
+                      onChange={(e) => setRencanaTfSampai(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-lg border-2 border-dashed border-red-300 bg-red-50/40 px-3 py-2 text-sm text-gray-700">
+                  Total Nominal TF pada tanggal tersebut
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-sm text-gray-600">Nomor Faktur</label>
+                    <input
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
+                      value={noFaktur}
+                      onChange={(e) => setNoFaktur(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm text-gray-600">Nomor Kontrabon</label>
+                    <input
+                      className="w-full rounded-lg bg-gray-100 px-3 py-2.5 text-sm text-gray-700"
+                      value={kodeLoading ? "Memuat..." : nomorKontrabon}
+                      readOnly
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-sm text-gray-600">Tanggal Faktur Pajak</label>
+                    <input
+                      type="date"
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
+                      value={tglFakturPajak}
+                      onChange={(e) => setTglFakturPajak(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm text-gray-600">Nomor Faktur Pajak</label>
+                    <input
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
+                      value={noFakturPajak}
+                      onChange={(e) => setNoFakturPajak(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm text-gray-600">Nominal Faktur</label>
+                  <input
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
+                    value={nominalFakturInput}
+                    onChange={(e) => {
+                      setNominalFakturManual(true);
+                      setNominalFakturInput(e.target.value);
+                    }}
+                  />
+                </div>
+
+                <div className="space-y-4">
+                  <div className="text-center text-sm font-semibold text-gray-700">Biaya Lain</div>
+                  {biayaLainRows.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-3 text-xs font-semibold text-gray-500">
+                        <span className="w-12" />
+                        <span className="w-40">Jenis</span>
+                        <span className="flex-1">Biaya Lain</span>
+                        <span className="flex-1">Keterangan Biaya</span>
+                        <span className="w-12" />
+                      </div>
+                      {biayaLainRows.map((row) => (
+                        <div key={row.id} className="space-y-2">
+                          <div className="flex items-end gap-3">
+                            <div className="w-12">
+                              <select
+                                className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm"
+                                value={row.tanda}
+                                onChange={(e) =>
+                                  setBiayaLainRows((prev) =>
+                                    prev.map((item) =>
+                                      item.id === row.id ? { ...item, tanda: e.target.value } : item
+                                    )
+                                  )
+                                }
+                              >
+                                <option value="-">-</option>
+                                <option value="+">+</option>
+                              </select>
                             </div>
-                            {supplierValue?.value && supplierDeposit !== null && supplierDeposit > 0 && (
-                              <button
-                                type="button"
-                                onClick={() =>
+                            <div className="w-40">
+                              <select
+                                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                                value={row.jenis}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setBiayaLainRows((prev) =>
+                                    prev.map((item) => {
+                                      if (item.id !== row.id) return item;
+                                      const updated = { ...item, jenis: val };
+                                      if (val === "DEPOSIT RETUR") {
+                                        updated.tanda = "-";
+                                        if (!updated.keterangan) {
+                                          updated.keterangan = "Klaim Deposit Retur";
+                                        }
+                                      }
+                                      return updated;
+                                    })
+                                  );
+                                }}
+                              >
+                                <option value="">Pilih ...</option>
+                                <option value="TUNAI">TUNAI</option>
+                                <option value="CHEQUE">CHEQUE</option>
+                                <option value="GIRO">GIRO</option>
+                                <option value="DEPOSIT RETUR">DEPOSIT RETUR</option>
+                                <option value="DEPOSIT KUPON">DEPOSIT KUPON</option>
+                                <option value="BIAYA/DLL">BIAYA/DLL</option>
+                              </select>
+                            </div>
+                            <div className="flex-1">
+                              <input
+                                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                                placeholder="Biaya lain"
+                                value={row.nominal}
+                                onChange={(e) =>
+                                  setBiayaLainRows((prev) =>
+                                    prev.map((item) =>
+                                      item.id === row.id ? { ...item, nominal: e.target.value } : item
+                                    )
+                                  )
+                                }
+                                type="number"
+                              />
+                            </div>
+                            <div className="flex-1">
+                              <input
+                                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                                placeholder="Keterangan"
+                                value={row.keterangan}
+                                onChange={(e) =>
                                   setBiayaLainRows((prev) =>
                                     prev.map((item) =>
                                       item.id === row.id
-                                        ? {
+                                        ? { ...item, keterangan: e.target.value }
+                                        : item
+                                    )
+                                  )
+                                }
+                              />
+                            </div>
+                            <div className="w-12">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setBiayaLainRows((prev) => prev.filter((item) => item.id !== row.id))
+                                }
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-rose-500 text-white"
+                              >
+                                X
+                              </button>
+                            </div>
+                          </div>
+
+                          {row.jenis === "DEPOSIT RETUR" && (
+                            <div className="ml-14 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-emerald-50 border border-emerald-200 px-3.5 py-2 text-xs text-emerald-950">
+                              <div className="flex items-center gap-2">
+                                <Wallet className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                                <span>
+                                  Sisa Saldo Deposit Retur Saat Ini:{" "}
+                                  <strong className="text-sm font-bold text-emerald-800">
+                                    {!supplierValue?.value
+                                      ? "(Pilih supplier terlebih dahulu)"
+                                      : supplierDepositLoading
+                                        ? "Memuat sisa saldo..."
+                                        : formatCurrency(supplierDeposit ?? 0)}
+                                  </strong>
+                                </span>
+                                {supplierValue?.value && supplierDeposit !== null && Number(row.nominal || 0) > supplierDeposit && (
+                                  <span className="text-rose-600 font-semibold ml-2">
+                                    (⚠️ Nominal melebihi sisa deposit retur!)
+                                  </span>
+                                )}
+                              </div>
+                              {supplierValue?.value && supplierDeposit !== null && supplierDeposit > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setBiayaLainRows((prev) =>
+                                      prev.map((item) =>
+                                        item.id === row.id
+                                          ? {
                                             ...item,
                                             nominal: String(supplierDeposit),
                                             tanda: "-",
                                             keterangan: item.keterangan || "Klaim Deposit Retur",
                                           }
-                                        : item
+                                          : item
+                                      )
                                     )
-                                  )
-                                }
-                                className="rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-2.5 py-1 text-xs transition-colors shadow-sm"
-                              >
-                                Gunakan Sisa Deposit ({formatCurrency(supplierDeposit)})
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                                  }
+                                  className="rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-2.5 py-1 text-xs transition-colors shadow-sm"
+                                >
+                                  Gunakan Sisa Deposit ({formatCurrency(supplierDeposit)})
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex items-center justify-center">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setBiayaLainRows((prev) => [
+                          ...prev,
+                          {
+                            id: `row-${Date.now()}`,
+                            tanda: "-",
+                            jenis: "",
+                            nominal: "",
+                            keterangan: "",
+                          },
+                        ])
+                      }
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-gray-600"
+                    >
+                      +
+                    </button>
                   </div>
-                )}
-                <div className="flex items-center justify-center">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setBiayaLainRows((prev) => [
-                        ...prev,
-                        {
-                          id: `row-${Date.now()}`,
-                          tanda: "-",
-                          jenis: "",
-                          nominal: "",
-                          keterangan: "",
-                        },
-                      ])
-                    }
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-gray-600"
-                  >
-                    +
-                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm text-gray-600">Total Nominal</label>
+                  <input
+                    className="w-full rounded-lg bg-gray-100 px-3 py-3 text-lg font-semibold text-gray-800"
+                    value={formatCurrency(totalNominalAkhir)}
+                    readOnly
+                  />
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm text-gray-600">Total Nominal</label>
-                <input
-                  className="w-full rounded-lg bg-gray-100 px-3 py-3 text-lg font-semibold text-gray-800"
-                  value={formatCurrency(totalNominalAkhir)}
-                  readOnly
-                />
-              </div>
-            </div>
+              <div className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-gray-100 bg-white px-5 py-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowModal(false);
+                    setEditingKontrabon(null);
+                    setPengadaanPreviewMap({});
+                    setPengadaanPreviewLoading({});
+                  }}
+                  className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600"
+                >
+                  Tutup
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (editingKontrabon) return;
+                    setSupplierValue(null);
+                    setRekeningValue(null);
+                    setRekeningList([]);
+                    setPengadaanRows([{ id: "row-1", kode_t_pengadaan: "", nominal: "" }]);
+                    setPengadaanList([]);
+                    setPengadaanPreviewMap({});
+                    setPengadaanPreviewLoading({});
+                    setNominalFakturManual(false);
+                    setNominalFakturInput("");
+                    setBiayaLainRows([]);
+                  }}
+                  className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600"
+                >
+                  Clear Form
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                  disabled={savingKontrabon}
+                  onClick={async () => {
+                    const kodePengadaan = pengadaanRows
+                      .map((row) => row.kode_t_pengadaan)
+                      .filter((code) => code);
+                    if (!supplierValue?.value) return showValidationAlert("Supplier wajib diisi.");
+                    if (!rekeningValue?.value) return showValidationAlert("Rekening wajib diisi.");
+                    if (kodePengadaan.length === 0) return showValidationAlert("Nomor pengadaan wajib dipilih.");
+                    if (!tglKontrabon) return showValidationAlert("Tanggal kontrabon wajib diisi.");
+                    if (!tglFaktur) return showValidationAlert("Tanggal faktur wajib diisi.");
+                    if (!tglGwen) return showValidationAlert("Tanggal Gwen wajib diisi.");
+                    if (!rencanaTfDari) return showValidationAlert("Rencana transfer wajib diisi.");
+                    if (!rencanaTfSampai) return showValidationAlert("Rencana transfer sampai wajib diisi.");
+                    if (!noFaktur) return showValidationAlert("Nomor faktur wajib diisi.");
+                    if (!nomorKontrabon) return showValidationAlert("Nomor kontrabon belum tersedia.");
 
-            <div className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-gray-100 bg-white px-5 py-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowModal(false);
-                  setEditingKontrabon(null);
-                  setPengadaanPreviewMap({});
-                  setPengadaanPreviewLoading({});
-                }}
-                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600"
-              >
-                Tutup
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (editingKontrabon) return;
-                  setSupplierValue(null);
-                  setRekeningValue(null);
-                  setRekeningList([]);
-                  setPengadaanRows([{ id: "row-1", kode_t_pengadaan: "", nominal: "" }]);
-                  setPengadaanList([]);
-                  setPengadaanPreviewMap({});
-                  setPengadaanPreviewLoading({});
-                  setNominalFakturManual(false);
-                  setNominalFakturInput("");
-                  setBiayaLainRows([]);
-                }}
-                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600"
-              >
-                Clear Form
-              </button>
-              <button
-                type="button"
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-                disabled={savingKontrabon}
-                onClick={async () => {
-                  const kodePengadaan = pengadaanRows
-                    .map((row) => row.kode_t_pengadaan)
-                    .filter((code) => code);
-                  if (!supplierValue?.value) return showValidationAlert("Supplier wajib diisi.");
-                  if (!rekeningValue?.value) return showValidationAlert("Rekening wajib diisi.");
-                  if (kodePengadaan.length === 0) return showValidationAlert("Nomor pengadaan wajib dipilih.");
-                  if (!tglKontrabon) return showValidationAlert("Tanggal kontrabon wajib diisi.");
-                  if (!tglFaktur) return showValidationAlert("Tanggal faktur wajib diisi.");
-                  if (!tglGwen) return showValidationAlert("Tanggal Gwen wajib diisi.");
-                  if (!rencanaTfDari) return showValidationAlert("Rencana transfer wajib diisi.");
-                  if (!rencanaTfSampai) return showValidationAlert("Rencana transfer sampai wajib diisi.");
-                  if (!noFaktur) return showValidationAlert("Nomor faktur wajib diisi.");
-                  if (!nomorKontrabon) return showValidationAlert("Nomor kontrabon belum tersedia.");
+                    setSavingKontrabon(true);
+                    try {
+                      const username = getCurrentUsername();
+                      const biayaLainPayload = biayaLainRows.map((row) => ({
+                        jenis: row.tanda,
+                        nominal: row.nominal || "0",
+                        keterangan: row.keterangan || "",
+                        tipe: row.jenis || "",
+                      }));
 
-                  setSavingKontrabon(true);
-                  try {
-                    const username = getCurrentUsername();
-                    const biayaLainPayload = biayaLainRows.map((row) => ({
-                      jenis: row.tanda,
-                      nominal: row.nominal || "0",
-                      keterangan: row.keterangan || "",
-                      tipe: row.jenis || "",
-                    }));
+                      const pengadaanRowsPayload = pengadaanRows
+                        .filter((r) => r.kode_t_pengadaan)
+                        .map((r) => {
+                          const found = pengadaanList.find((p) => p.kode_t_pengadaan === r.kode_t_pengadaan);
+                          return {
+                            kode_t_pengadaan: r.kode_t_pengadaan,
+                            nominal: parseNumber(r.nominal || "") || getPengadaanGrossAmount(r, found),
+                          };
+                        });
 
-                    const pengadaanRowsPayload = pengadaanRows
-                      .filter((r) => r.kode_t_pengadaan)
-                      .map((r) => {
-                        const found = pengadaanList.find((p) => p.kode_t_pengadaan === r.kode_t_pengadaan);
-                        return {
-                          kode_t_pengadaan: r.kode_t_pengadaan,
-                          nominal: parseNumber(r.nominal || "") || getPengadaanGrossAmount(r, found),
-                        };
-                      });
-
-                    const res = await fetch(
-                      editingKontrabon
-                        ? `${API_BASE}/kontrabon/${encodeURIComponent(nomorKontrabon)}`
-                        : `${API_BASE}/kontrabon`,
-                      {
-                        method: editingKontrabon ? "PUT" : "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(
-                          editingKontrabon
-                            ? {
+                      const res = await fetch(
+                        editingKontrabon
+                          ? `${API_BASE}/kontrabon/${encodeURIComponent(nomorKontrabon)}`
+                          : `${API_BASE}/kontrabon`,
+                        {
+                          method: editingKontrabon ? "PUT" : "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify(
+                            editingKontrabon
+                              ? {
                                 no_faktur: noFaktur,
                                 tgl_kontrabon: tglKontrabon,
                                 tgl_faktur: tglFaktur,
@@ -1928,7 +1924,7 @@ export default function HistoryKontrabonPage() {
                                 cabang: selectedRekening?.cabang || "",
                                 updated_by: username,
                               }
-                            : {
+                              : {
                                 kode_supplier: supplierValue.value,
                                 nama_supplier: supplierValue.label,
                                 no_kontrabon: nomorKontrabon,
@@ -1953,182 +1949,182 @@ export default function HistoryKontrabonPage() {
                                 tgl_faktur_pajak: tglFakturPajak,
                                 created_by: username,
                               }
-                        ),
+                          ),
+                        }
+                      );
+
+                      if (!res.ok) {
+                        const msg = await readApiErrorMessage(res);
+                        throw new Error(msg || "Gagal menyimpan kontrabon");
                       }
-                    );
 
-                    if (!res.ok) {
-                      const msg = await readApiErrorMessage(res);
-                      throw new Error(msg || "Gagal menyimpan kontrabon");
+                      const data = await res.json();
+                      if (data?.no_kontrabon) setNomorKontrabon(data.no_kontrabon);
+                      await Swal.fire({
+                        icon: "success",
+                        title: editingKontrabon ? "Kontrabon berhasil diupdate" : "Kontrabon berhasil dibuat",
+                        text: data?.no_kontrabon
+                          ? `Nomor kontrabon: ${data.no_kontrabon}`
+                          : "Data kontrabon sudah tersimpan.",
+                        confirmButtonText: "OK",
+                      });
+                      setShowModal(false);
+                      setEditingKontrabon(null);
+                      fetchKontrabon();
+                    } catch (err: any) {
+                      console.error("Failed save kontrabon", err);
+                      await Swal.fire({
+                        icon: "error",
+                        title: editingKontrabon ? "Gagal update kontrabon" : "Gagal membuat kontrabon",
+                        text: err?.message || "Terjadi kesalahan saat menyimpan kontrabon.",
+                        confirmButtonText: "OK",
+                      });
+                    } finally {
+                      setSavingKontrabon(false);
                     }
-
-                    const data = await res.json();
-                    if (data?.no_kontrabon) setNomorKontrabon(data.no_kontrabon);
-                    await Swal.fire({
-                      icon: "success",
-                      title: editingKontrabon ? "Kontrabon berhasil diupdate" : "Kontrabon berhasil dibuat",
-                      text: data?.no_kontrabon
-                        ? `Nomor kontrabon: ${data.no_kontrabon}`
-                        : "Data kontrabon sudah tersimpan.",
-                      confirmButtonText: "OK",
-                    });
-                    setShowModal(false);
-                    setEditingKontrabon(null);
-                    fetchKontrabon();
-                  } catch (err: any) {
-                    console.error("Failed save kontrabon", err);
-                    await Swal.fire({
-                      icon: "error",
-                      title: editingKontrabon ? "Gagal update kontrabon" : "Gagal membuat kontrabon",
-                      text: err?.message || "Terjadi kesalahan saat menyimpan kontrabon.",
-                      confirmButtonText: "OK",
-                    });
-                  } finally {
-                    setSavingKontrabon(false);
-                  }
-                }}
-              >
-                {savingKontrabon
-                  ? "Menyimpan..."
-                  : editingKontrabon
-                  ? "Simpan Perubahan"
-                  : "Buat Kontrabon"}
-              </button>
-            </div>
-          </div>
-          {selectedPreviewCodes.length > 0 && (
-            <div className="flex h-full w-full max-w-[760px] flex-col rounded-xl bg-white shadow-xl">
-              <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-                <div>
-                  <div className="text-base font-semibold text-slate-900">Rasio Pengadaan</div>
-                  <div className="text-xs text-slate-500">{selectedPreviewCodes.length} PEN dipilih</div>
-                </div>
+                  }}
+                >
+                  {savingKontrabon
+                    ? "Menyimpan..."
+                    : editingKontrabon
+                      ? "Simpan Perubahan"
+                      : "Buat Kontrabon"}
+                </button>
               </div>
-              <div className="flex-1 overflow-y-auto px-5 py-4">
-                <div className="space-y-5">
-                  {selectedPreviewCodes.map((previewCode) => {
-                    const preview = pengadaanPreviewMap[previewCode];
-                    const slotOrder = Array.isArray(preview?.slot_order) && preview.slot_order.length
-                      ? preview.slot_order
-                      : ["K3", "K2", "K1"];
-                    const previewRows = Array.isArray(preview?.rows) ? preview.rows : [];
-                    return (
-                      <section key={previewCode} className="space-y-3 rounded-xl border border-slate-200 p-3">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <div className="text-sm font-semibold text-slate-900">
-                              Rasio Pengadaan: {previewCode}
-                            </div>
-                            <div className="mt-1 text-xs text-slate-600">
-                              Supplier: {preview?.header?.nama_supplier || "-"} | Tanggal: {formatDate(preview?.header?.tgl)}
-                            </div>
-                          </div>
-                          <div className="text-right text-xs text-slate-600">
-                            <div>No Faktur: {preview?.header?.no_faktur_supplier || "-"}</div>
-                            <div className="font-semibold text-slate-900">
-                              Total: {formatCurrency(preview?.header?.total_akhir)}
-                            </div>
-                            {preview?.header?.total_invalue_sisa !== undefined && (
-                              <div className="mt-0.5 text-xs font-semibold text-amber-800">
-                                Invalue Sisa: {formatCurrency(preview.header.total_invalue_sisa)} ({formatNumber(preview.header.persen_invalue_sisa)}%)
+            </div>
+            {selectedPreviewCodes.length > 0 && (
+              <div className="flex h-full w-full max-w-[760px] flex-col rounded-xl bg-white shadow-xl">
+                <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+                  <div>
+                    <div className="text-base font-semibold text-slate-900">Rasio Pengadaan</div>
+                    <div className="text-xs text-slate-500">{selectedPreviewCodes.length} PEN dipilih</div>
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto px-5 py-4">
+                  <div className="space-y-5">
+                    {selectedPreviewCodes.map((previewCode) => {
+                      const preview = pengadaanPreviewMap[previewCode];
+                      const slotOrder = Array.isArray(preview?.slot_order) && preview.slot_order.length
+                        ? preview.slot_order
+                        : ["K3", "K2", "K1"];
+                      const previewRows = Array.isArray(preview?.rows) ? preview.rows : [];
+                      return (
+                        <section key={previewCode} className="space-y-3 rounded-xl border border-slate-200 p-3">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-semibold text-slate-900">
+                                Rasio Pengadaan: {previewCode}
                               </div>
-                            )}
+                              <div className="mt-1 text-xs text-slate-600">
+                                Supplier: {preview?.header?.nama_supplier || "-"} | Tanggal: {formatDate(preview?.header?.tgl)}
+                              </div>
+                            </div>
+                            <div className="text-right text-xs text-slate-600">
+                              <div>No Faktur: {preview?.header?.no_faktur_supplier || "-"}</div>
+                              <div className="font-semibold text-slate-900">
+                                Total: {formatCurrency(preview?.header?.total_akhir)}
+                              </div>
+                              {preview?.header?.total_invalue_sisa !== undefined && (
+                                <div className="mt-0.5 text-xs font-semibold text-amber-800">
+                                  Invalue Sisa: {formatCurrency(preview.header.total_invalue_sisa)} ({formatNumber(preview.header.persen_invalue_sisa)}%)
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                        {pengadaanPreviewLoading[previewCode] ? (
-                          <div className="rounded-lg border border-slate-200 px-4 py-6 text-sm text-slate-500">
-                            Memuat rasio 3 pengadaan terakhir...
-                          </div>
-                        ) : (
-                          <div className="overflow-x-auto rounded-lg border border-slate-200">
-                            <table className="min-w-[980px] w-full border-collapse text-[11px] leading-tight">
-                              <thead>
-                                <tr className="bg-slate-100 text-slate-900">
-                                  <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-left">Nama Barang</th>
-                                  <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-left">Supplier</th>
-                                  {slotOrder.map((slot) => (
-                                    <th key={slot} colSpan={5} className="border border-slate-300 px-2 py-2 text-center">
-                                      Pengadaan {slot}
-                                    </th>
-                                  ))}
-                                  <th rowSpan={2} className="border border-slate-300 px-2 py-2 text-center">Gudang</th>
-                                  <th rowSpan={2} className="border border-slate-300 px-2 py-2 text-center">Toko</th>
-                                </tr>
-                                <tr className="bg-slate-50 text-slate-700">
-                                  {slotOrder.flatMap((slot) => [
-                                    <th key={`${previewCode}-${slot}-status`} className="border border-slate-300 px-2 py-2 text-center">S</th>,
-                                    <th key={`${previewCode}-${slot}-po`} className="border border-slate-300 px-2 py-2 text-center">PO</th>,
-                                    <th key={`${previewCode}-${slot}-pct`} className="border border-slate-300 px-2 py-2 text-center">%</th>,
-                                    <th key={`${previewCode}-${slot}-sisa`} className="border border-slate-300 px-2 py-2 text-center">Sisa</th>,
-                                    <th key={`${previewCode}-${slot}-umur`} className="border border-slate-300 px-2 py-2 text-center">Umur</th>,
-                                  ])}
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {previewRows.length === 0 ? (
-                                  <tr>
-                                    <td colSpan={19} className="border border-slate-300 px-4 py-6 text-center text-slate-500">
-                                      Tidak ada data rasio untuk pengadaan ini.
-                                    </td>
+                          {pengadaanPreviewLoading[previewCode] ? (
+                            <div className="rounded-lg border border-slate-200 px-4 py-6 text-sm text-slate-500">
+                              Memuat rasio 3 pengadaan terakhir...
+                            </div>
+                          ) : (
+                            <div className="overflow-x-auto rounded-lg border border-slate-200">
+                              <table className="min-w-[980px] w-full border-collapse text-[11px] leading-tight">
+                                <thead>
+                                  <tr className="bg-slate-100 text-slate-900">
+                                    <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-left">Nama Barang</th>
+                                    <th rowSpan={2} className="border border-slate-300 px-3 py-2 text-left">Supplier</th>
+                                    {slotOrder.map((slot) => (
+                                      <th key={slot} colSpan={5} className="border border-slate-300 px-2 py-2 text-center">
+                                        Pengadaan {slot}
+                                      </th>
+                                    ))}
+                                    <th rowSpan={2} className="border border-slate-300 px-2 py-2 text-center">Gudang</th>
+                                    <th rowSpan={2} className="border border-slate-300 px-2 py-2 text-center">Toko</th>
                                   </tr>
-                                ) : (
-                                  previewRows.map((previewRow) => (
-                                    <tr key={`${previewCode}-${previewRow.kodeBarangVariant}`} className="align-top">
-                                      <td className="border border-slate-300 px-3 py-2 text-slate-900">
-                                        <div className="font-semibold leading-snug">{previewRow.namaBarang}</div>
-                                        <div className="mt-1 break-all text-[10px] text-slate-500">{previewRow.kodeBarangVariant}</div>
-                                      </td>
-                                      <td className="border border-slate-300 px-3 py-2">{previewRow.namaSupplier || "-"}</td>
-                                      {slotOrder.flatMap((slotName) => {
-                                        const slot = previewRow.slots[slotOrder.indexOf(slotName)] || null;
-                                        const slotClass = previewSlotCellClass(slot);
-                                        return [
-                                          <td key={`${previewRow.kodeBarangVariant}-${previewCode}-${slotName}-status`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "first")}`}>
-                                            {slot ? (
-                                              <span className={`inline-flex rounded-full px-1.5 py-1 text-[10px] font-semibold ${previewSlotBadgeClass(slot)}`}>
-                                                {slot.statusBayar === "Lunas" ? "L" : "B"}
-                                              </span>
-                                            ) : "-"}
-                                          </td>,
-                                          <td key={`${previewRow.kodeBarangVariant}-${previewCode}-${slotName}-po`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "middle")}`}>
-                                            {slot ? formatNumber(slot.qty) : "-"}
-                                          </td>,
-                                          <td key={`${previewRow.kodeBarangVariant}-${previewCode}-${slotName}-pct`} className={`border border-slate-300 px-1 py-2 text-center font-semibold ${slotClass} ${previewCurrentBorderClass(slot, "middle")}`}>
-                                            {slot?.persen !== null && slot?.persen !== undefined ? `${formatNumber(slot.persen)}%` : "-"}
-                                          </td>,
-                                          <td key={`${previewRow.kodeBarangVariant}-${previewCode}-${slotName}-sisa`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "middle")}`}>
-                                            <div className="font-medium">{slot ? formatNumber(slot.sisa) : "-"}</div>
-                                            {slot && Number(slot.invalueSisa ?? 0) > 0 ? (
-                                              <div className="text-[9px] font-semibold text-amber-900 leading-tight">
-                                                {formatCurrency(slot.invalueSisa)}
-                                              </div>
-                                            ) : null}
-                                          </td>,
-                                          <td key={`${previewRow.kodeBarangVariant}-${previewCode}-${slotName}-umur`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "last")}`}>
-                                            {slot?.umurHari !== null && slot?.umurHari !== undefined ? `${slot.umurHari} hari` : "-"}
-                                          </td>,
-                                        ];
-                                      })}
-                                      <td className="border border-slate-300 px-2 py-2 text-center font-semibold text-slate-900">
-                                        {formatNumber(previewRow.stokGudang)}
-                                      </td>
-                                      <td className="border border-slate-300 px-2 py-2 text-center font-semibold text-slate-900">
-                                        {formatNumber(previewRow.stokToko)}
+                                  <tr className="bg-slate-50 text-slate-700">
+                                    {slotOrder.flatMap((slot) => [
+                                      <th key={`${previewCode}-${slot}-status`} className="border border-slate-300 px-2 py-2 text-center">S</th>,
+                                      <th key={`${previewCode}-${slot}-po`} className="border border-slate-300 px-2 py-2 text-center">PO</th>,
+                                      <th key={`${previewCode}-${slot}-pct`} className="border border-slate-300 px-2 py-2 text-center">%</th>,
+                                      <th key={`${previewCode}-${slot}-sisa`} className="border border-slate-300 px-2 py-2 text-center">Sisa</th>,
+                                      <th key={`${previewCode}-${slot}-umur`} className="border border-slate-300 px-2 py-2 text-center">Umur</th>,
+                                    ])}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {previewRows.length === 0 ? (
+                                    <tr>
+                                      <td colSpan={19} className="border border-slate-300 px-4 py-6 text-center text-slate-500">
+                                        Tidak ada data rasio untuk pengadaan ini.
                                       </td>
                                     </tr>
-                                  ))
-                                )}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                      </section>
-                    );
-                  })}
+                                  ) : (
+                                    previewRows.map((previewRow) => (
+                                      <tr key={`${previewCode}-${previewRow.kodeBarangVariant}`} className="align-top">
+                                        <td className="border border-slate-300 px-3 py-2 text-slate-900">
+                                          <div className="font-semibold leading-snug">{previewRow.namaBarang}</div>
+                                          <div className="mt-1 break-all text-[10px] text-slate-500">{previewRow.kodeBarangVariant}</div>
+                                        </td>
+                                        <td className="border border-slate-300 px-3 py-2">{previewRow.namaSupplier || "-"}</td>
+                                        {slotOrder.flatMap((slotName) => {
+                                          const slot = previewRow.slots[slotOrder.indexOf(slotName)] || null;
+                                          const slotClass = previewSlotCellClass(slot);
+                                          return [
+                                            <td key={`${previewRow.kodeBarangVariant}-${previewCode}-${slotName}-status`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "first")}`}>
+                                              {slot ? (
+                                                <span className={`inline-flex rounded-full px-1.5 py-1 text-[10px] font-semibold ${previewSlotBadgeClass(slot)}`}>
+                                                  {slot.statusBayar === "Lunas" ? "L" : "B"}
+                                                </span>
+                                              ) : "-"}
+                                            </td>,
+                                            <td key={`${previewRow.kodeBarangVariant}-${previewCode}-${slotName}-po`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "middle")}`}>
+                                              {slot ? formatNumber(slot.qty) : "-"}
+                                            </td>,
+                                            <td key={`${previewRow.kodeBarangVariant}-${previewCode}-${slotName}-pct`} className={`border border-slate-300 px-1 py-2 text-center font-semibold ${slotClass} ${previewCurrentBorderClass(slot, "middle")}`}>
+                                              {slot?.persen !== null && slot?.persen !== undefined ? `${formatNumber(slot.persen)}%` : "-"}
+                                            </td>,
+                                            <td key={`${previewRow.kodeBarangVariant}-${previewCode}-${slotName}-sisa`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "middle")}`}>
+                                              <div className="font-medium">{slot ? formatNumber(slot.sisa) : "-"}</div>
+                                              {slot && Number(slot.invalueSisa ?? 0) > 0 ? (
+                                                <div className="text-[9px] font-semibold text-amber-900 leading-tight">
+                                                  {formatCurrency(slot.invalueSisa)}
+                                                </div>
+                                              ) : null}
+                                            </td>,
+                                            <td key={`${previewRow.kodeBarangVariant}-${previewCode}-${slotName}-umur`} className={`border border-slate-300 px-1 py-2 text-center ${slotClass} ${previewCurrentBorderClass(slot, "last")}`}>
+                                              {slot?.umurHari !== null && slot?.umurHari !== undefined ? `${slot.umurHari} hari` : "-"}
+                                            </td>,
+                                          ];
+                                        })}
+                                        <td className="border border-slate-300 px-2 py-2 text-center font-semibold text-slate-900">
+                                          {formatNumber(previewRow.stokGudang)}
+                                        </td>
+                                        <td className="border border-slate-300 px-2 py-2 text-center font-semibold text-slate-900">
+                                          {formatNumber(previewRow.stokToko)}
+                                        </td>
+                                      </tr>
+                                    ))
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </section>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
           </div>
         </div>
       )}
