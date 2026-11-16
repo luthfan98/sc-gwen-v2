@@ -281,14 +281,18 @@ export default function HistoryKontrabonPage() {
     total_tagihan?: number | null;
     total_dibayar?: number | null;
   } | null) => {
+    if (!item) return false;
+    const statusPaid = String(item?.status_paid || "").trim().toLowerCase();
+    const isLunas = Number(item?.is_lunas ?? 0) === 1 || item?.is_lunas === true;
+    if (isLunas || statusPaid === "paid") {
+      return true;
+    }
     const totalAkhir = Number(item?.total_akhir ?? 0);
     const totalDibayar = Number(item?.total_dibayar ?? 0);
-    const totalTagihan = Number(item?.total_tagihan ?? 0);
-    if (totalAkhir > 0 && (totalDibayar < totalAkhir || totalTagihan < totalAkhir)) {
-      return false;
+    if (totalAkhir > 0 && totalDibayar >= totalAkhir) {
+      return true;
     }
-    const statusPaid = String(item?.status_paid || "").trim().toLowerCase();
-    return Number(item?.is_lunas ?? 0) === 1 || item?.is_lunas === true || statusPaid === "paid";
+    return false;
   };
 
   const paidPengadaanSet = useMemo(() => {

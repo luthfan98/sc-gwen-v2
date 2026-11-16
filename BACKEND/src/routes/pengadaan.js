@@ -697,9 +697,11 @@ export default async function pengadaanRoutes(fastify) {
                 AND ISNULL(tag.total_dibayar, 0) >= ISNULL(tag.total_tagihan, 0)
                 THEN 1
               WHEN
-                ISNULL(tag.total_tagihan, 0) = 0
-                AND COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) > 0
-                AND ISNULL(paid_kontrabon.paid_kontrabon_total, 0) >= COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0)
+                COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) > 0
+                AND (
+                  ISNULL(paid_kontrabon.paid_kontrabon_total, 0) >= COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0)
+                  OR (ISNULL(tag.total_dibayar, 0) + ISNULL(paid_kontrabon.paid_kontrabon_total, 0)) >= COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0)
+                )
                 THEN 1
               ELSE 0
             END AS is_lunas,
@@ -714,11 +716,13 @@ export default async function pengadaanRoutes(fastify) {
                 AND ISNULL(tag.total_dibayar, 0) >= ISNULL(tag.total_tagihan, 0)
                 THEN 'PAID'
               WHEN
-                ISNULL(tag.total_tagihan, 0) = 0
-                AND COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) > 0
-                AND ISNULL(paid_kontrabon.paid_kontrabon_total, 0) >= COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0)
+                COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0) > 0
+                AND (
+                  ISNULL(paid_kontrabon.paid_kontrabon_total, 0) >= COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0)
+                  OR (ISNULL(tag.total_dibayar, 0) + ISNULL(paid_kontrabon.paid_kontrabon_total, 0)) >= COALESCE(NULLIF(t.total_akhir, 0), NULLIF(t.total_sblm_ppn, 0), t.total, 0)
+                )
                 THEN 'PAID'
-              WHEN ISNULL(tag.total_dibayar, 0) > 0
+              WHEN (ISNULL(tag.total_dibayar, 0) + ISNULL(paid_kontrabon.paid_kontrabon_total, 0)) > 0
                 THEN 'PARTIALLY PAID'
               ELSE 'NOT PAID'
             END AS status_paid
@@ -742,7 +746,7 @@ export default async function pengadaanRoutes(fastify) {
             SELECT TOP 1 1 AS in_paid_kontrabon, ISNULL(k.nominal_total, ISNULL(k.nominal_faktur, 0)) AS paid_kontrabon_total
             FROM dbo.GWEN_t_kontrabon k
             WHERE ISNULL(k.status, 1) = 1
-              AND LTRIM(RTRIM(ISNULL(k.status_paid, ''))) = 'Paid'
+              AND LOWER(LTRIM(RTRIM(ISNULL(k.status_paid, '')))) = 'paid'
               AND (
                 LTRIM(RTRIM(ISNULL(k.kode_t_pengadaan, ''))) = LTRIM(RTRIM(t.kode_t_pengadaan))
                 OR ISNULL(k.kode_t_pengadaan, '') LIKE '%"' + LTRIM(RTRIM(t.kode_t_pengadaan)) + '"%'
@@ -880,7 +884,7 @@ export default async function pengadaanRoutes(fastify) {
           ISNULL(nominal_total, ISNULL(nominal_faktur, 0)) AS paid_kontrabon_total
         FROM dbo.GWEN_t_kontrabon
         WHERE ISNULL(status, 1) = 1
-          AND LTRIM(RTRIM(ISNULL(status_paid, ''))) = 'Paid'
+          AND LOWER(LTRIM(RTRIM(ISNULL(status_paid, '')))) = 'paid'
         ORDER BY ISNULL(tgl_bayar, created_at) DESC, id DESC;
       `);
 
@@ -900,8 +904,9 @@ export default async function pengadaanRoutes(fastify) {
         }
         for (const code of list) {
           const clean = String(code || "").trim();
-          if (clean && !paidKbMap.has(clean)) {
-            paidKbMap.set(clean, Number(kb.paid_kontrabon_total || 0));
+          if (clean) {
+            const currentTotal = paidKbMap.get(clean) || 0;
+            paidKbMap.set(clean, currentTotal + Number(kb.paid_kontrabon_total || 0));
           }
         }
       }
@@ -921,7 +926,7 @@ export default async function pengadaanRoutes(fastify) {
           isLunas = 1;
         } else if (baseTotal === 0 && totalTagihan > 0 && totalDibayar >= totalTagihan) {
           isLunas = 1;
-        } else if (totalTagihan === 0 && baseTotal > 0 && paidKbTotal >= baseTotal) {
+        } else if (baseTotal > 0 && (paidKbTotal >= baseTotal || (totalDibayar + paidKbTotal) >= baseTotal)) {
           isLunas = 1;
         }
 
@@ -930,9 +935,9 @@ export default async function pengadaanRoutes(fastify) {
           statusPaid = "PAID";
         } else if (baseTotal === 0 && totalTagihan > 0 && totalDibayar >= totalTagihan) {
           statusPaid = "PAID";
-        } else if (totalTagihan === 0 && baseTotal > 0 && paidKbTotal >= baseTotal) {
+        } else if (baseTotal > 0 && (paidKbTotal >= baseTotal || (totalDibayar + paidKbTotal) >= baseTotal)) {
           statusPaid = "PAID";
-        } else if (totalDibayar > 0) {
+        } else if ((totalDibayar + paidKbTotal) > 0) {
           statusPaid = "PARTIALLY PAID";
         }
 
