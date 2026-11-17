@@ -789,9 +789,9 @@ export default async function promoRoutes(fastify) {
                SELECT 1
                FROM dbo.GWEN_d_promosi_rule_group rg
                WHERE rg.kode_t_promosi = p.kode_t_promosi
-                 AND rg.rule_type = 'ITEM_COMBO'
                  AND (
-                   ISNULL(rg.min_total_qty, 0) > 1
+                   rg.rule_type = 'ITEM_COMBO'
+                   OR ISNULL(rg.min_total_qty, 0) > 1
                    OR EXISTS (
                      SELECT 1
                      FROM dbo.GWEN_d_promosi_rule_item ri

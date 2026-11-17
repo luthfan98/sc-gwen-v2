@@ -215,7 +215,7 @@ export default function PromoBundlingPage() {
         setJenisDiskon("BONUS");
         setNilaiDiskon("");
         const bonusList = Array.isArray(firstBenefit.bonus_items) ? firstBenefit.bonus_items : [];
-        const bonusSet = new Set(
+        const bonusSet = new Set<string>(
           bonusList.map((b: any) => String(b?.kode_barang_variant || "")).filter(Boolean)
         );
         setSelectedBonusItems(bonusSet);
@@ -243,7 +243,7 @@ export default function PromoBundlingPage() {
       setSelectedToko(new Set(targets.map((t: any) => String(t))));
       setSelectAllToko(targets.length > 0 && targets.length === tokoOptions.length);
 
-      const selected = new Set(items.map((it: any) => String(it.kode_barang_variant)));
+      const selected = new Set<string>(items.map((it: any) => String(it.kode_barang_variant)));
       setSelectedItems(selected);
       setPendingItems(new Set());
       setItemMinQty(
@@ -818,7 +818,7 @@ export default function PromoBundlingPage() {
           </div>
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-[#3c7f77]">Promosi</p>
-            <h1 className="text-2xl font-bold text-gray-900">Program Bundling</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Promo Bundling</h1>
             <p className="text-sm text-gray-500">Atur promo bundling berdasarkan kombinasi item dan qty.</p>
           </div>
         </div>
@@ -1257,7 +1257,7 @@ export default function PromoBundlingPage() {
                 options={tokoSelectOptions}
                 value={selectedTokoValues}
                 onChange={handleTokoChange}
-                isOptionSelected={(option) =>
+                isOptionSelected={(option: any) =>
                   option.value === allTokoOption.value ? selectAllToko : selectedToko.has(option.value)
                 }
                 styles={selectStyles}

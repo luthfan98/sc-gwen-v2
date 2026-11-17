@@ -112,7 +112,7 @@ const navGroups: NavGroup[] = [
       { label: "Master Promosi", href: "/admin/master/promosi", icon: Gift },
       { label: "Voucher", href: "/admin/master/promosi/voucher", icon: Tag },
       { label: "Diskon Refraksi", href: "/admin/master/promosi/refraksi", icon: BadgePercent },
-      { label: "Program Bundling", href: "/admin/master/promosi/bundling", icon: Gift },
+      { label: "Promo Bundling", href: "/admin/master/promosi/bundling", icon: Gift },
     ],
   },
   {

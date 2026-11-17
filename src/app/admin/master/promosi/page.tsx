@@ -3,7 +3,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarClock, CheckCircle2, Eye, FilePlus2, Inbox, Pencil, Tag, XCircle } from "lucide-react";
+import { CalendarClock, CheckCircle2, Eye, FilePlus2, Gift, Inbox, Pencil, Tag, XCircle, BadgePercent } from "lucide-react";
 import Swal from "sweetalert2";
 
 type PromoRow = {
@@ -377,10 +377,24 @@ export default function MasterPromosiPage() {
           <p className="text-sm text-gray-500">Master Data</p>
           <h1 className="text-2xl font-bold text-gray-900">Master Promosi</h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/admin/master/promosi/bundling"
+            className="inline-flex items-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3.5 py-2 text-sm font-semibold text-teal-800 hover:bg-teal-100 transition-colors shadow-xs"
+          >
+            <Gift className="w-4 h-4 text-teal-700" />
+            Promo Bundling
+          </Link>
+          <Link
+            href="/admin/master/promosi/refraksi"
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3.5 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            <BadgePercent className="w-4 h-4" />
+            Diskon Refraksi
+          </Link>
           <Link
             href="/admin/master/promosi/voucher"
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3.5 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
           >
             <Tag className="w-4 h-4" />
             Voucher
@@ -388,7 +402,7 @@ export default function MasterPromosiPage() {
           <button
             type="button"
             onClick={openCreate}
-            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 shadow-xs"
           >
             <FilePlus2 className="w-4 h-4" />
             Tambah Promosi
