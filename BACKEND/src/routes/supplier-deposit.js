@@ -26,25 +26,54 @@ export default async function supplierDepositRoutes(fastify) {
       const kontrabonRes = await kontrabonReq.query(queryKontrabon);
 
       const usedRtsSet = new Set();
+      const usedRtsInfo = new Map();
       for (const row of kontrabonRes.recordset || []) {
         if (!row.biaya_lain) continue;
         const matches = String(row.biaya_lain).match(/RTS\.[A-Za-z0-9]+/g);
         if (matches) {
-          matches.forEach((m) => usedRtsSet.add(m));
+          matches.forEach((m) => {
+            usedRtsSet.add(m);
+            usedRtsInfo.set(m, `Kontrabon ${row.no_kontrabon}`);
+          });
         }
       }
 
-      // Also check ledger mutasi KELUAR if any
+      // Check ledger mutasi KELUAR vs revert MASUK
       const ledgerOutRes = await pool.request().query(`
-        SELECT kode_ref
+        SELECT id_ledger, kode_mutasi, tipe_mutasi, kode_ref, keterangan, nominal
         FROM dbo.GWEN_t_supplier_deposit_ledger
-        WHERE tipe_mutasi = 'KELUAR' AND kode_ref IS NOT NULL
+        WHERE kode_ref IS NOT NULL
+          AND (tipe_mutasi = 'KELUAR' OR kode_mutasi LIKE 'MUT.DEP.ADJ.IN%')
       `);
+
+      const ledgerNetClaim = new Map();
+      const ledgerInfo = new Map();
+
       for (const row of ledgerOutRes.recordset || []) {
         if (!row.kode_ref) continue;
-        const matches = String(row.kode_ref).match(/RTS\.[A-Za-z0-9]+/g);
-        if (matches) {
-          matches.forEach((m) => usedRtsSet.add(m));
+        const matches = String(row.kode_ref).match(/RTS\.[A-Za-z0-9]+/g) || [];
+        matches.forEach((m) => {
+          const currentNet = ledgerNetClaim.get(m) || 0;
+          if (row.tipe_mutasi === "KELUAR") {
+            ledgerNetClaim.set(m, currentNet + Number(row.nominal || 0));
+            if (!ledgerInfo.has(m)) ledgerInfo.set(m, row.keterangan || "Sudah Digunakan (Buku Besar)");
+          } else {
+            ledgerNetClaim.set(m, currentNet - Number(row.nominal || 0));
+          }
+        });
+      }
+
+      for (const [rtsCode, netNom] of ledgerNetClaim.entries()) {
+        if (netNom > 0) {
+          usedRtsSet.add(rtsCode);
+          if (!usedRtsInfo.has(rtsCode)) {
+            usedRtsInfo.set(rtsCode, ledgerInfo.get(rtsCode) || "Sudah Digunakan");
+          }
+        } else {
+          if (!kontrabonRes.recordset?.some((r) => String(r.biaya_lain || "").includes(rtsCode))) {
+            usedRtsSet.delete(rtsCode);
+            usedRtsInfo.delete(rtsCode);
+          }
         }
       }
 
@@ -79,6 +108,7 @@ export default async function supplierDepositRoutes(fastify) {
         catatan: r.catatan || "",
         status_retur: r.status_retur || "",
         is_used: usedRtsSet.has(r.kode_t_retur_supplier),
+        used_reference: usedRtsInfo.get(r.kode_t_retur_supplier) || null,
       }));
 
       return reply.send(items);
@@ -249,6 +279,274 @@ export default async function supplierDepositRoutes(fastify) {
     } catch (err) {
       fastify.log.error({ err }, "Failed to fetch deposit ledger");
       return reply.code(500).send({ message: "Gagal memuat buku besar deposit supplier" });
+    }
+  });
+
+  // Adjust retur status (Mark as used / unused) with full ledger audit trail
+  fastify.post("/adjust-retur", async (request, reply) => {
+    const body = request.body || {};
+    const kodeSupplier = String(body.kode_supplier || "").trim();
+    const kodeRetur = String(body.kode_t_retur_supplier || "").trim();
+    const action = String(body.action || "").trim().toUpperCase(); // "MARK_USED" or "MARK_UNUSED"
+    const keterangan = String(body.keterangan || "").trim();
+    const createdBy = String(body.created_by || "Admin").trim() || "Admin";
+
+    if (!kodeSupplier) {
+      return reply.code(400).send({ message: "kode_supplier wajib diisi" });
+    }
+    if (!kodeRetur) {
+      return reply.code(400).send({ message: "kode_t_retur_supplier wajib diisi" });
+    }
+    if (action !== "MARK_USED" && action !== "MARK_UNUSED") {
+      return reply.code(400).send({ message: "action harus MARK_USED atau MARK_UNUSED" });
+    }
+
+    const tx = new sql.Transaction(pool);
+    try {
+      await tx.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+
+      // 1. Get retur details
+      const returRes = await new sql.Request(tx)
+        .input("kode_retur", sql.VarChar(255), kodeRetur)
+        .query(`
+          SELECT TOP 1 kode_t_retur_supplier, kode_supplier, nama_supplier, total_nominal
+          FROM dbo.GWEN_t_retur_supplier
+          WHERE kode_t_retur_supplier = @kode_retur;
+        `);
+
+      if (!returRes.recordset?.length) {
+        await tx.rollback();
+        return reply.code(404).send({ message: "Dokumen retur tidak ditemukan" });
+      }
+
+      const returData = returRes.recordset[0];
+      const nominal = Number(returData.total_nominal || 0);
+      if (nominal <= 0) {
+        await tx.rollback();
+        return reply.code(400).send({ message: "Nominal retur tidak valid (0 atau negatif)" });
+      }
+
+      // 2. Lock & get current supplier balance
+      const suppRes = await new sql.Request(tx)
+        .input("kode_supplier", sql.VarChar(255), kodeSupplier)
+        .query(`
+          SELECT kode_supplier, nama_supplier, ISNULL(saldo_deposit, 0) AS saldo_deposit
+          FROM dbo.GWEN_m_supplier_deposit WITH (UPDLOCK, ROWLOCK)
+          WHERE kode_supplier = @kode_supplier;
+        `);
+
+      const saldoAwal = Number(suppRes.recordset?.[0]?.saldo_deposit || 0);
+      const namaSupplier = suppRes.recordset?.[0]?.nama_supplier || returData.nama_supplier || kodeSupplier;
+
+      const yyMMdd = new Date().toISOString().slice(2, 10).replace(/-/g, "");
+      const now = new Date();
+
+      if (action === "MARK_USED") {
+        const saldoAkhir = saldoAwal - nominal;
+        const kodeMutasi = `MUT.DEP.ADJ.OUT.${yyMMdd}.${Date.now().toString().slice(-6)}`;
+
+        // Insert into ledger
+        await new sql.Request(tx)
+          .input("kode_mutasi", sql.VarChar(100), kodeMutasi)
+          .input("tgl_mutasi", sql.DateTime, now)
+          .input("kode_supplier", sql.VarChar(255), kodeSupplier)
+          .input("nama_supplier", sql.NVarChar(255), namaSupplier)
+          .input("tipe_mutasi", sql.VarChar(50), "KELUAR")
+          .input("kode_ref", sql.VarChar(255), kodeRetur)
+          .input("saldo_awal", sql.Decimal(20, 2), saldoAwal)
+          .input("nominal", sql.Decimal(20, 2), nominal)
+          .input("saldo_akhir", sql.Decimal(20, 2), saldoAkhir)
+          .input(
+            "keterangan",
+            sql.NVarChar(500),
+            `Penyesuaian Manual: Ditandai Sudah Digunakan (${kodeRetur})${keterangan ? ` - ${keterangan}` : ""}`
+          )
+          .input("created_by", sql.VarChar(255), createdBy)
+          .input("created_at", sql.DateTime, now)
+          .query(`
+            INSERT INTO dbo.GWEN_t_supplier_deposit_ledger (
+              kode_mutasi, tgl_mutasi, kode_supplier, nama_supplier, tipe_mutasi, kode_ref,
+              saldo_awal, nominal, saldo_akhir, keterangan, created_by, created_at
+            ) VALUES (
+              @kode_mutasi, @tgl_mutasi, @kode_supplier, @nama_supplier, @tipe_mutasi, @kode_ref,
+              @saldo_awal, @nominal, @saldo_akhir, @keterangan, @created_by, @created_at
+            );
+          `);
+
+        // Update master deposit
+        await new sql.Request(tx)
+          .input("kode_supplier", sql.VarChar(255), kodeSupplier)
+          .input("saldo_deposit", sql.Decimal(20, 2), saldoAkhir)
+          .input("updated_by", sql.VarChar(255), createdBy)
+          .query(`
+            UPDATE dbo.GWEN_m_supplier_deposit
+            SET saldo_deposit = @saldo_deposit,
+                updated_at = GETDATE(),
+                updated_by = @updated_by
+            WHERE kode_supplier = @kode_supplier;
+          `);
+
+        await tx.commit();
+        return reply.send({
+          message: `Dokumen ${kodeRetur} berhasil ditandai sebagai Sudah Digunakan. Saldo deposit disesuaikan (potong ${nominal.toLocaleString("id-ID")}).`,
+          saldo_deposit: saldoAkhir,
+          kode_mutasi: kodeMutasi,
+        });
+      } else {
+        // MARK_UNUSED
+        const saldoAkhir = saldoAwal + nominal;
+        const kodeMutasi = `MUT.DEP.ADJ.IN.${yyMMdd}.${Date.now().toString().slice(-6)}`;
+
+        // Insert into ledger
+        await new sql.Request(tx)
+          .input("kode_mutasi", sql.VarChar(100), kodeMutasi)
+          .input("tgl_mutasi", sql.DateTime, now)
+          .input("kode_supplier", sql.VarChar(255), kodeSupplier)
+          .input("nama_supplier", sql.NVarChar(255), namaSupplier)
+          .input("tipe_mutasi", sql.VarChar(50), "MASUK")
+          .input("kode_ref", sql.VarChar(255), kodeRetur)
+          .input("saldo_awal", sql.Decimal(20, 2), saldoAwal)
+          .input("nominal", sql.Decimal(20, 2), nominal)
+          .input("saldo_akhir", sql.Decimal(20, 2), saldoAkhir)
+          .input(
+            "keterangan",
+            sql.NVarChar(500),
+            `Penyesuaian Manual: Dikembalikan Belum Digunakan (${kodeRetur})${keterangan ? ` - ${keterangan}` : ""}`
+          )
+          .input("created_by", sql.VarChar(255), createdBy)
+          .input("created_at", sql.DateTime, now)
+          .query(`
+            INSERT INTO dbo.GWEN_t_supplier_deposit_ledger (
+              kode_mutasi, tgl_mutasi, kode_supplier, nama_supplier, tipe_mutasi, kode_ref,
+              saldo_awal, nominal, saldo_akhir, keterangan, created_by, created_at
+            ) VALUES (
+              @kode_mutasi, @tgl_mutasi, @kode_supplier, @nama_supplier, @tipe_mutasi, @kode_ref,
+              @saldo_awal, @nominal, @saldo_akhir, @keterangan, @created_by, @created_at
+            );
+          `);
+
+        // Update master deposit
+        await new sql.Request(tx)
+          .input("kode_supplier", sql.VarChar(255), kodeSupplier)
+          .input("saldo_deposit", sql.Decimal(20, 2), saldoAkhir)
+          .input("updated_by", sql.VarChar(255), createdBy)
+          .query(`
+            UPDATE dbo.GWEN_m_supplier_deposit
+            SET saldo_deposit = @saldo_deposit,
+                updated_at = GETDATE(),
+                updated_by = @updated_by
+            WHERE kode_supplier = @kode_supplier;
+          `);
+
+        await tx.commit();
+        return reply.send({
+          message: `Dokumen ${kodeRetur} berhasil dikembalikan menjadi Belum Digunakan. Saldo deposit disesuaikan (tambah ${nominal.toLocaleString("id-ID")}).`,
+          saldo_deposit: saldoAkhir,
+          kode_mutasi: kodeMutasi,
+        });
+      }
+    } catch (err) {
+      await tx.rollback().catch(() => {});
+      fastify.log.error({ err }, "Failed to adjust retur status");
+      return reply.code(500).send({ message: "Gagal menyesuaikan status dokumen retur" });
+    }
+  });
+
+  // Direct deposit balance adjustment (koreksi saldo manual)
+  fastify.post("/adjust-nominal", async (request, reply) => {
+    const body = request.body || {};
+    const kodeSupplier = String(body.kode_supplier || "").trim();
+    const tipeMutasi = String(body.tipe_mutasi || "").trim().toUpperCase(); // "MASUK" or "KELUAR"
+    const nominal = Math.abs(Number(body.nominal || 0));
+    const keterangan = String(body.keterangan || "").trim();
+    const createdBy = String(body.created_by || "Admin").trim() || "Admin";
+
+    if (!kodeSupplier) {
+      return reply.code(400).send({ message: "kode_supplier wajib diisi" });
+    }
+    if (tipeMutasi !== "MASUK" && tipeMutasi !== "KELUAR") {
+      return reply.code(400).send({ message: "tipe_mutasi harus MASUK atau KELUAR" });
+    }
+    if (nominal <= 0) {
+      return reply.code(400).send({ message: "Nominal penyesuaian harus lebih dari 0" });
+    }
+
+    const tx = new sql.Transaction(pool);
+    try {
+      await tx.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+
+      const suppRes = await new sql.Request(tx)
+        .input("kode_supplier", sql.VarChar(255), kodeSupplier)
+        .query(`
+          SELECT kode_supplier, nama_supplier, ISNULL(saldo_deposit, 0) AS saldo_deposit
+          FROM dbo.GWEN_m_supplier_deposit WITH (UPDLOCK, ROWLOCK)
+          WHERE kode_supplier = @kode_supplier;
+        `);
+
+      const saldoAwal = Number(suppRes.recordset?.[0]?.saldo_deposit || 0);
+      const namaSupplier = suppRes.recordset?.[0]?.nama_supplier || kodeSupplier;
+
+      if (tipeMutasi === "KELUAR" && saldoAwal < nominal) {
+        await tx.rollback();
+        return reply.code(400).send({
+          message: `Saldo deposit tidak mencukupi untuk pengurangan. Saldo saat ini: Rp ${saldoAwal.toLocaleString("id-ID")}`,
+        });
+      }
+
+      const saldoAkhir = tipeMutasi === "MASUK" ? saldoAwal + nominal : saldoAwal - nominal;
+      const yyMMdd = new Date().toISOString().slice(2, 10).replace(/-/g, "");
+      const kodeMutasi = `MUT.DEP.ADJ.${tipeMutasi}.${yyMMdd}.${Date.now().toString().slice(-6)}`;
+      const now = new Date();
+
+      await new sql.Request(tx)
+        .input("kode_mutasi", sql.VarChar(100), kodeMutasi)
+        .input("tgl_mutasi", sql.DateTime, now)
+        .input("kode_supplier", sql.VarChar(255), kodeSupplier)
+        .input("nama_supplier", sql.NVarChar(255), namaSupplier)
+        .input("tipe_mutasi", sql.VarChar(50), tipeMutasi)
+        .input("kode_ref", sql.VarChar(255), "ADJUSTMENT")
+        .input("saldo_awal", sql.Decimal(20, 2), saldoAwal)
+        .input("nominal", sql.Decimal(20, 2), nominal)
+        .input("saldo_akhir", sql.Decimal(20, 2), saldoAkhir)
+        .input(
+          "keterangan",
+          sql.NVarChar(500),
+          `Koreksi Saldo Manual (${tipeMutasi}): ${keterangan || "Penyesuaian Admin"}`
+        )
+        .input("created_by", sql.VarChar(255), createdBy)
+        .input("created_at", sql.DateTime, now)
+        .query(`
+          INSERT INTO dbo.GWEN_t_supplier_deposit_ledger (
+            kode_mutasi, tgl_mutasi, kode_supplier, nama_supplier, tipe_mutasi, kode_ref,
+            saldo_awal, nominal, saldo_akhir, keterangan, created_by, created_at
+          ) VALUES (
+            @kode_mutasi, @tgl_mutasi, @kode_supplier, @nama_supplier, @tipe_mutasi, @kode_ref,
+            @saldo_awal, @nominal, @saldo_akhir, @keterangan, @created_by, @created_at
+          );
+        `);
+
+      await new sql.Request(tx)
+        .input("kode_supplier", sql.VarChar(255), kodeSupplier)
+        .input("saldo_deposit", sql.Decimal(20, 2), saldoAkhir)
+        .input("updated_by", sql.VarChar(255), createdBy)
+        .query(`
+          UPDATE dbo.GWEN_m_supplier_deposit
+          SET saldo_deposit = @saldo_deposit,
+              updated_at = GETDATE(),
+              updated_by = @updated_by
+          WHERE kode_supplier = @kode_supplier;
+        `);
+
+      await tx.commit();
+      return reply.send({
+        message: `Saldo deposit berhasil disesuaikan (${tipeMutasi} Rp ${nominal.toLocaleString("id-ID")}).`,
+        saldo_deposit: saldoAkhir,
+        kode_mutasi: kodeMutasi,
+      });
+    } catch (err) {
+      await tx.rollback().catch(() => {});
+      fastify.log.error({ err }, "Failed to adjust deposit nominal");
+      return reply.code(500).send({ message: "Gagal menyesuaikan nominal deposit" });
     }
   });
 
