@@ -140,3 +140,4 @@ if (process.argv[1]?.endsWith("sync-kontrabon-deposit.js")) {
       process.exit(1);
     });
 }
+
