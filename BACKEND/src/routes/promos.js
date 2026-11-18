@@ -785,26 +785,8 @@ export default async function promoRoutes(fastify) {
              )
            )
            AND (
-             @bundle_only IS NULL OR @bundle_only = 0 OR EXISTS (
-               SELECT 1
-               FROM dbo.GWEN_d_promosi_rule_group rg
-               WHERE rg.kode_t_promosi = p.kode_t_promosi
-                 AND (
-                   rg.rule_type = 'ITEM_COMBO'
-                   OR ISNULL(rg.min_total_qty, 0) > 1
-                   OR EXISTS (
-                     SELECT 1
-                     FROM dbo.GWEN_d_promosi_rule_item ri
-                     WHERE ri.kode_d_rule_group = rg.kode_d_rule_group
-                       AND ISNULL(ri.min_qty, 0) > 1
-                   )
-                   OR EXISTS (
-                     SELECT 1
-                     FROM dbo.GWEN_d_promosi_benefit b
-                     WHERE b.kode_t_promosi = p.kode_t_promosi
-                       AND b.benefit_type = 'BONUS_ITEM'
-                   )
-                 )
+             @bundle_only IS NULL OR @bundle_only = 0 OR (
+               UPPER(LTRIM(RTRIM(ISNULL(p.jenis_sumber, '')))) = 'BUNDLING'
              )
            )
          ORDER BY p.created_at DESC, p.kode_t_promosi DESC;`

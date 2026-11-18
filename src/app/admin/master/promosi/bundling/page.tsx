@@ -763,7 +763,7 @@ export default function PromoBundlingPage() {
       valid_to: tanggalSelesai,
       time_from: toSqlTime(jamMulai),
       time_to: toSqlTime(jamSelesai),
-      jenis_sumber: "INTERNAL",
+      jenis_sumber: "BUNDLING",
       status_aktif: editingHeader?.status_aktif ?? 1,
       status_approval: editingHeader?.status_approval ?? 0,
       updated_by: getUsername(),
