@@ -785,9 +785,9 @@ export default async function promoRoutes(fastify) {
              )
            )
            AND (
-             @bundle_only IS NULL OR @bundle_only = 0 OR (
-               UPPER(LTRIM(RTRIM(ISNULL(p.jenis_sumber, '')))) = 'BUNDLING'
-             )
+             (@bundle_only = 1 AND UPPER(LTRIM(RTRIM(ISNULL(p.jenis_sumber, '')))) = 'BUNDLING')
+             OR
+             (ISNULL(@bundle_only, 0) = 0 AND UPPER(LTRIM(RTRIM(ISNULL(p.jenis_sumber, '')))) <> 'BUNDLING')
            )
          ORDER BY p.created_at DESC, p.kode_t_promosi DESC;`
       );
