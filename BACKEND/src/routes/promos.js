@@ -827,6 +827,7 @@ export default async function promoRoutes(fastify) {
            p.updated_by,
            p.updated_at
          FROM dbo.GWEN_t_promosi p
+          LEFT JOIN dbo.GWEN_t_promosi_bundling pb ON pb.kode_t_promosi = p.kode_t_promosi
          LEFT JOIN (
            SELECT
              LTRIM(RTRIM(promo_code)) AS promo_code,
@@ -930,6 +931,7 @@ export default async function promoRoutes(fastify) {
             p.*,
             COALESCE(promo_usage.total_discount, p.budget_terpakai, 0) AS budget_terpakai
           FROM dbo.GWEN_t_promosi p
+          LEFT JOIN dbo.GWEN_t_promosi_bundling pb ON pb.kode_t_promosi = p.kode_t_promosi
           LEFT JOIN (
             SELECT
               LTRIM(RTRIM(promo_code)) AS promo_code,
