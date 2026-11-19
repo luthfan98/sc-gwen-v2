@@ -74,6 +74,7 @@ export default async function promoRoutes(fastify) {
     time_from: parseTime(body.time_from),
     time_to: parseTime(body.time_to),
     jenis_sumber: body.jenis_sumber ? String(body.jenis_sumber).trim() : null,
+    barcode_bundling: body.barcode_bundling ? String(body.barcode_bundling).trim() : null,
     status_aktif: body.status_aktif === 0 || body.status_aktif === false ? 0 : 1,
     status_approval:
       body.status_approval === 1 || body.status_approval === 2
@@ -273,6 +274,65 @@ export default async function promoRoutes(fastify) {
                    @is_active, @created_by, @created_at);`
         );
     }
+
+    // Bundling records
+    const bundlingItems = Array.isArray(payload.bundling_items) ? payload.bundling_items : [];
+    const barcodeBundling = String(payload.barcode_bundling || payload.header?.barcode_bundling || "").trim();
+    if (bundlingItems.length > 0 || barcodeBundling) {
+      let totalReal = Number(payload.total_harga_real || 0);
+      let totalBundling = Number(payload.total_harga_bundling || 0);
+
+      if (!totalReal || !totalBundling) {
+        totalReal = bundlingItems.reduce((acc, it) => acc + (Number(it.harga_real || 0) * Number(it.qty || 1)), 0);
+        totalBundling = bundlingItems.reduce((acc, it) => acc + (Number(it.harga_promo || 0) * Number(it.qty || 1)), 0);
+      }
+      const totalDiskon = Math.max(0, totalReal - totalBundling);
+
+      if (barcodeBundling) {
+        await trx
+          .request()
+          .input("kode_t_promosi", sql.VarChar(50), kodePromosi)
+          .input("barcode_bundling", sql.VarChar(50), barcodeBundling)
+          .input("total_harga_real", sql.Decimal(18, 2), totalReal)
+          .input("total_harga_bundling", sql.Decimal(18, 2), totalBundling)
+          .input("total_diskon", sql.Decimal(18, 2), totalDiskon)
+          .query(`
+            INSERT INTO dbo.GWEN_t_promosi_bundling
+            (kode_t_promosi, barcode_bundling, total_harga_real, total_harga_bundling, total_diskon)
+            VALUES (@kode_t_promosi, @barcode_bundling, @total_harga_real, @total_harga_bundling, @total_diskon);
+          `);
+      }
+
+      for (const item of bundlingItems) {
+        const qty = Number(item.qty || 1);
+        const hargaReal = Number(item.harga_real || 0);
+        const hargaPromo = Number(item.harga_promo || 0);
+        const subtotalReal = hargaReal * qty;
+        const subtotalPromo = hargaPromo * qty;
+        const diskonItem = Math.max(0, subtotalReal - subtotalPromo);
+
+        await trx
+          .request()
+          .input("kode_t_promosi", sql.VarChar(50), kodePromosi)
+          .input("kode_barang_variant", sql.VarChar(50), String(item.kode_barang_variant || ""))
+          .input("nama_barang", sql.VarChar(255), item.nama_barang ? String(item.nama_barang).trim() : null)
+          .input("nama_varian", sql.VarChar(255), item.nama_varian ? String(item.nama_varian).trim() : null)
+          .input("barcode_varian", sql.VarChar(100), item.barcode_varian ? String(item.barcode_varian).trim() : null)
+          .input("qty", sql.Int, qty)
+          .input("harga_real", sql.Decimal(18, 2), hargaReal)
+          .input("harga_promo", sql.Decimal(18, 2), hargaPromo)
+          .input("subtotal_real", sql.Decimal(18, 2), subtotalReal)
+          .input("subtotal_promo", sql.Decimal(18, 2), subtotalPromo)
+          .input("diskon_item", sql.Decimal(18, 2), diskonItem)
+          .query(`
+            INSERT INTO dbo.GWEN_d_promosi_bundling_item
+            (kode_t_promosi, kode_barang_variant, nama_barang, nama_varian, barcode_varian,
+             qty, harga_real, harga_promo, subtotal_real, subtotal_promo, diskon_item)
+            VALUES (@kode_t_promosi, @kode_barang_variant, @nama_barang, @nama_varian, @barcode_varian,
+                    @qty, @harga_real, @harga_promo, @subtotal_real, @subtotal_promo, @diskon_item);
+          `);
+      }
+    }
   };
 
   const deleteChildren = async (trx, kodePromosi) => {
@@ -292,7 +352,9 @@ export default async function promoRoutes(fastify) {
          DELETE FROM dbo.GWEN_d_promosi_rule_group WHERE kode_t_promosi = @kode_t_promosi;
          DELETE FROM dbo.GWEN_d_promosi_payment_method WHERE kode_t_promosi = @kode_t_promosi;
          DELETE FROM dbo.GWEN_d_promosi_target_toko WHERE kode_t_promosi = @kode_t_promosi;
-         DELETE FROM dbo.GWEN_d_promosi_banner WHERE kode_t_promosi = @kode_t_promosi;`
+         DELETE FROM dbo.GWEN_d_promosi_banner WHERE kode_t_promosi = @kode_t_promosi;
+         DELETE FROM dbo.GWEN_d_promosi_bundling_item WHERE kode_t_promosi = @kode_t_promosi;
+         DELETE FROM dbo.GWEN_t_promosi_bundling WHERE kode_t_promosi = @kode_t_promosi;`
       );
   };
 
@@ -395,6 +457,23 @@ export default async function promoRoutes(fastify) {
       );
     payload.banners = bannerRes.recordset || [];
 
+      const bundlingHeaderRes = await pool
+        .request()
+        .input("kode_t_promosi", sql.VarChar(50), kode)
+        .query(`SELECT * FROM dbo.GWEN_t_promosi_bundling WHERE kode_t_promosi = @kode_t_promosi;`);
+      
+      const bundlingItemsRes = await pool
+        .request()
+        .input("kode_t_promosi", sql.VarChar(50), kode)
+        .query(`SELECT * FROM dbo.GWEN_d_promosi_bundling_item WHERE kode_t_promosi = @kode_t_promosi ORDER BY id ASC;`);
+
+      payload.bundling_header = bundlingHeaderRes.recordset?.[0] || null;
+      payload.bundling_items = bundlingItemsRes.recordset || [];
+      if (payload.bundling_header?.barcode_bundling) {
+        payload.header.barcode_bundling = payload.bundling_header.barcode_bundling;
+      }
+
+
     return payload;
   };
 
@@ -486,6 +565,7 @@ export default async function promoRoutes(fastify) {
                time_from = @time_from,
                time_to = @time_to,
                jenis_sumber = @jenis_sumber,
+               barcode_bundling = @barcode_bundling,
                status_aktif = @status_aktif,
                status_approval = @status_approval,
                budget_total = @budget_total,
@@ -709,6 +789,11 @@ export default async function promoRoutes(fastify) {
            p.max_total_redeem_trx,
            p.total_redeem_trx_used,
            p.payment_scope,
+           COALESCE(pb.barcode_bundling, p.barcode_bundling) AS barcode_bundling,
+           pb.total_harga_real,
+           pb.total_harga_bundling,
+           pb.total_diskon,
+           (SELECT COUNT(*) FROM dbo.GWEN_d_promosi_bundling_item bi WHERE bi.kode_t_promosi = p.kode_t_promosi) AS total_bundling_items,
            (
              SELECT STRING_AGG(t.kode_toko, ',')
              FROM dbo.GWEN_d_promosi_target_toko t
@@ -750,7 +835,7 @@ export default async function promoRoutes(fastify) {
            WHERE ISNULL(is_active, 1) = 1
            GROUP BY LTRIM(RTRIM(promo_code))
          ) promo_usage ON promo_usage.promo_code = p.kode_t_promosi
-         WHERE (@q IS NULL OR p.nama_promosi LIKE @q OR p.deskripsi LIKE @q)
+         WHERE (@q IS NULL OR p.nama_promosi LIKE @q OR p.deskripsi LIKE @q OR pb.barcode_bundling LIKE @q OR p.barcode_bundling LIKE @q)
            AND (@status IS NULL OR p.status_approval = @status)
            AND (@aktif IS NULL OR p.status_aktif = @aktif)
            AND (@date_from IS NULL OR CONVERT(date, p.valid_to) >= @date_from)
@@ -795,6 +880,40 @@ export default async function promoRoutes(fastify) {
     } catch (err) {
       fastify.log.error({ err }, "Failed fetch promosi list");
       return reply.code(500).send({ message: "Gagal memuat promosi" });
+    }
+  });
+
+  
+  fastify.get("/generate-bundle-barcode", async (_request, reply) => {
+    try {
+      const now = new Date();
+      const yy = String(now.getFullYear()).slice(-2);
+      const mm = String(now.getMonth() + 1).padStart(2, "0");
+      const dd = String(now.getDate()).padStart(2, "0");
+      const prefix = `BDL${yy}${mm}${dd}`;
+
+      const res = await pool
+        .request()
+        .input("prefix", sql.VarChar(30), `${prefix}%`)
+        .query(`
+          SELECT barcode_bundling FROM dbo.GWEN_t_promosi_bundling
+          WHERE barcode_bundling LIKE @prefix
+          UNION
+          SELECT barcode_bundling FROM dbo.GWEN_t_promosi
+          WHERE barcode_bundling LIKE @prefix
+        `);
+
+      const existing = new Set(res.recordset.map((r) => String(r.barcode_bundling || "").trim()));
+      let seq = 1;
+      let candidate = `${prefix}${String(seq).padStart(3, "0")}`;
+      while (existing.has(candidate)) {
+        seq++;
+        candidate = `${prefix}${String(seq).padStart(3, "0")}`;
+      }
+      return reply.send({ barcode: candidate });
+    } catch (err) {
+      fastify.log.error({ err }, "Failed generate bundle barcode");
+      return reply.code(500).send({ message: "Gagal generate barcode bundling" });
     }
   });
 
@@ -956,6 +1075,7 @@ export default async function promoRoutes(fastify) {
         .input("time_from", sql.VarChar(8), header.time_from)
         .input("time_to", sql.VarChar(8), header.time_to)
         .input("jenis_sumber", sql.VarChar(20), header.jenis_sumber)
+        .input("barcode_bundling", sql.VarChar(50), header.barcode_bundling || null)
         .input("status_aktif", sql.Bit, header.status_aktif)
         .input("status_approval", sql.Int, header.status_approval)
         .input("budget_total", sql.Decimal(18, 2), header.budget_total)
